@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.h-hero {
+  height: 480px;
+}
+
+img {
+  max-width: 100%;
+}
