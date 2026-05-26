@@ -1,27 +1,66 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/layout/Layout'
-import Dashboard from './pages/Dashboard'
-import DestinationList from './pages/destinations/DestinationList'
-import UserList from './pages/users/UserList'
-import CategoryList from './pages/categories/CategoryList'
-import GalleryList from './pages/gallery/GalleryList'
-import BookmarkAnalytics from './pages/bookmarks/BookmarkAnalytics'
-import FeaturedList from './pages/featured/FeaturedList'
+import { Toaster } from "@/components/ui/toaster"
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClientInstance } from '@/lib/query-client'
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import PageNotFound from './lib/PageNotFound';
+import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+
+import Layout from '@/components/admin/Layout';
+import Dashboard from '@/pages/admin/Dashboard';
+import Destinations from '@/pages/admin/Destinations';
+import Users from '@/pages/admin/Users';
+import Categories from '@/pages/admin/Categories';
+import Gallery from '@/pages/admin/Gallery';
+import Bookmarks from '@/pages/admin/Bookmarks';
+import Featured from '@/pages/admin/Featured';
+
+const AuthenticatedApp = () => {
+  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+
+  if (isLoadingPublicSettings || isLoadingAuth) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    if (authError.type === 'user_not_registered') {
+      return <UserNotRegisteredError />;
+    } else if (authError.type === 'auth_required') {
+      navigateToLogin();
+      return null;
+    }
+  }
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/destinations" element={<Destinations />} />
+        <Route path="/users" element={<Users />} />
+        <Route path="/categories" element={<Categories />} />
+        <Route path="/gallery" element={<Gallery />} />
+        <Route path="/bookmarks" element={<Bookmarks />} />
+        <Route path="/featured" element={<Featured />} />
+      </Route>
+      <Route path="*" element={<PageNotFound />} />
+    </Routes>
+  );
+};
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="destinations" element={<DestinationList />} />
-        <Route path="users" element={<UserList />} />
-        <Route path="categories" element={<CategoryList />} />
-        <Route path="gallery" element={<GalleryList />} />
-        <Route path="bookmarks" element={<BookmarkAnalytics />} />
-        <Route path="featured" element={<FeaturedList />} />
-      </Route>
-    </Routes>
+    <AuthProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <AuthenticatedApp />
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </AuthProvider>
   )
 }
 
