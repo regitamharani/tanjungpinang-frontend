@@ -2,19 +2,43 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Outlet } from "react-router-dom";
 import {
-  LayoutDashboard, MapPin, Users, Tag, Images, Bookmark, Star,
-  ChevronLeft, Menu, LogOut, X,
+  LayoutDashboard, MapPin, Users, Tag, Images,
+  ChevronLeft, Menu, LogOut, X, MessageSquare, Navigation,
+  Globe, BookOpen, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { label: "Dashboard", path: "/", icon: LayoutDashboard },
-  { label: "Destinasi", path: "/destinations", icon: MapPin },
-  { label: "Pengguna", path: "/users", icon: Users },
-  { label: "Kategori", path: "/categories", icon: Tag },
-  { label: "Galeri", path: "/gallery", icon: Images },
-  { label: "Bookmark", path: "/bookmarks", icon: Bookmark },
-  { label: "Unggulan", path: "/featured", icon: Star },
+const navGroups = [
+  {
+    label: null,
+    items: [
+      { label: "Dashboard", path: "/", icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: "Kelola Konten",
+    items: [
+      { label: "Destinasi", path: "/destinations", icon: MapPin },
+      { label: "Kategori", path: "/categories", icon: Tag },
+      { label: "Galeri", path: "/gallery", icon: Images },
+      { label: "Homepage Highlight", path: "/highlight", icon: Globe },
+      { label: "Panduan Liburan", path: "/travel-guide", icon: BookOpen },
+    ],
+  },
+  {
+    label: "Interaksi User",
+    items: [
+      { label: "Rating & Ulasan", path: "/reviews", icon: MessageSquare },
+      { label: "Riwayat Kunjungan", path: "/visits", icon: Navigation },
+      { label: "Pengguna", path: "/users", icon: Users },
+    ],
+  },
+  {
+    label: "AI Analytics",
+    items: [
+      { label: "Itinerary Logs", path: "/itinerary", icon: Zap },
+    ],
+  },
 ];
 
 function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
@@ -28,7 +52,7 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
             <div className="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center shrink-0">
               <MapPin size={13} className="text-white" />
             </div>
-            <span className="text-sm font-bold text-gray-800 tracking-tight">WisataAdmin</span>
+            <span className="text-sm font-bold text-gray-800 tracking-tight">TPinang Guide</span>
           </div>
         )}
         <button
@@ -42,26 +66,35 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
       {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto">
         <div className="px-2 space-y-0.5">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = item.path === "/" ? location.pathname === "/" : location.pathname.startsWith(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={onNavClick}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
-                  active
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                )}
-              >
-                <Icon size={16} className="shrink-0" />
-                {!collapsed && <span className="font-medium">{item.label}</span>}
-              </Link>
-            );
-          })}
+          {navGroups.map((group) => (
+            <div key={group.label || "main"} className="mb-1">
+              {group.label && !collapsed && (
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-3 pt-3 pb-1.5">
+                  {group.label}
+                </p>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const active = item.path === "/" ? location.pathname === "/" : location.pathname.startsWith(item.path);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={onNavClick}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
+                      active
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                    )}
+                  >
+                    <Icon size={16} className="shrink-0" />
+                    {!collapsed && <span className="font-medium">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </nav>
 
@@ -72,7 +105,7 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-semibold text-indigo-600 shrink-0">A</div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-gray-700 truncate">Admin</p>
-              <p className="text-[11px] text-gray-400 truncate">admin@wisata.id</p>
+              <p className="text-[11px] text-gray-400 truncate">admin@tanjungpinang.id</p>
             </div>
             <LogOut size={14} className="text-gray-400 hover:text-gray-600 cursor-pointer shrink-0" />
           </div>
@@ -90,7 +123,6 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // close mobile drawer on resize
   useEffect(() => {
     const handler = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
     window.addEventListener("resize", handler);
@@ -99,7 +131,6 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setMobileOpen(false)} />
       )}
@@ -125,7 +156,6 @@ export default function Layout() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile top bar */}
         <div className="md:hidden flex items-center gap-3 px-4 h-12 bg-white border-b border-gray-100 shrink-0">
           <button onClick={() => setMobileOpen(true)} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100">
             <Menu size={18} />
@@ -134,7 +164,7 @@ export default function Layout() {
             <div className="w-5 h-5 rounded bg-indigo-600 flex items-center justify-center">
               <MapPin size={11} className="text-white" />
             </div>
-            <span className="text-sm font-bold text-gray-800">WisataAdmin</span>
+            <span className="text-sm font-bold text-gray-800">TPinang Guide</span>
           </div>
         </div>
 

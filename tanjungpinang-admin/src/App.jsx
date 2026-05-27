@@ -12,8 +12,11 @@ import Destinations from '@/pages/admin/Destinations';
 import Users from '@/pages/admin/Users';
 import Categories from '@/pages/admin/Categories';
 import Gallery from '@/pages/admin/Gallery';
-import Bookmarks from '@/pages/admin/Bookmarks';
-import Featured from '@/pages/admin/Featured';
+import Reviews from '@/pages/admin/Reviews';
+import Visits from '@/pages/admin/Visits';
+import HomepageHighlight from '@/pages/admin/HomepageHighlight';
+import TravelGuide from '@/pages/admin/TravelGuide';
+import Itinerary from '@/pages/admin/Itinerary';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -43,8 +46,11 @@ const AuthenticatedApp = () => {
         <Route path="/users" element={<Users />} />
         <Route path="/categories" element={<Categories />} />
         <Route path="/gallery" element={<Gallery />} />
-        <Route path="/bookmarks" element={<Bookmarks />} />
-        <Route path="/featured" element={<Featured />} />
+        <Route path="/reviews" element={<Reviews />} />
+        <Route path="/visits" element={<Visits />} />
+        <Route path="/highlight" element={<HomepageHighlight />} />
+        <Route path="/travel-guide" element={<TravelGuide />} />
+        <Route path="/itinerary" element={<Itinerary />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
