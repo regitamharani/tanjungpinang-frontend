@@ -1,76 +1,53 @@
-import { useState } from "react";
-import { useAppStore } from "@/store/appStore";
+import { useEffect, useMemo, useState } from "react";
 import {
   Pencil,
   Trash2,
   Plus,
-  Landmark,
-  Waves,
-  UtensilsCrossed,
-  MoonStar,
-  TreePine,
-  Palette,
-  Mountain,
-  Building2,
-  Star,
-  Compass,
   Search,
   X,
+  ImagePlus,
+  Link as LinkIcon,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import ConfirmModal from "@/components/admin/ConfirmModal";
 
-export const iconOptions = [
-  { label: "Landmark", value: "Landmark", Icon: Landmark },
-  { label: "Pantai", value: "Waves", Icon: Waves },
-  { label: "Kuliner", value: "UtensilsCrossed", Icon: UtensilsCrossed },
-  { label: "Religi", value: "MoonStar", Icon: MoonStar },
-  { label: "Alam", value: "TreePine", Icon: TreePine },
-  { label: "Seni", value: "Palette", Icon: Palette },
-  { label: "Gunung", value: "Mountain", Icon: Mountain },
-  { label: "Kota", value: "Building2", Icon: Building2 },
-  { label: "Unggulan", value: "Star", Icon: Star },
-  { label: "Jelajah", value: "Compass", Icon: Compass },
+const API_URL = "http://localhost:3000/api/categories";
+
+const emojiOptions = [
+  "🏝️",
+  "🌊",
+  "🍽️",
+  "🕌",
+  "🌳",
+  "🎨",
+  "⛰️",
+  "🏙️",
+  "⭐",
+  "🧭",
+  "🏛️",
+  "📸",
 ];
 
-export const iconMap = {
-  Landmark,
-  Waves,
-  UtensilsCrossed,
-  MoonStar,
-  TreePine,
-  Palette,
-  Mountain,
-  Building2,
-  Star,
-  Compass,
-};
-
-export function CategoryIcon({
-  icon,
-  size = 15,
-  className = "text-gray-500",
-}) {
-  const Icon = iconMap[icon] || Compass;
-  return <Icon size={size} className={className} />;
-}
-
 const statusStyles = {
-  true: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  false: "bg-gray-100 text-gray-500 border-gray-200",
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  inactive: "bg-gray-100 text-gray-500 border-gray-200",
 };
 
-function CategoryForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(
-    initial || {
-      name: "",
-      icon: "Landmark",
-      image: "",
-      description: "",
-      isActive: true,
-    }
-  );
+const emptyForm = {
+  name: "",
+  image: "",
+  emoji: "🏝️",
+  isActive: true,
+};
+
+function CategoryForm({ initial, onSave, onCancel, saving }) {
+  const [form, setForm] = useState(initial || emptyForm);
+  const [imageUrl, setImageUrl] = useState("");
+  const [error, setError] = useState("");
 
   const set = (key, value) => {
+    setError("");
     setForm((prev) => ({
       ...prev,
       [key]: value,
@@ -79,8 +56,20 @@ function CategoryForm({ initial, onSave, onCancel }) {
 
   const compressImage = (file) => {
     return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error("File tidak ditemukan"));
+        return;
+      }
+
       if (!file.type.startsWith("image/")) {
         reject(new Error("File harus berupa gambar"));
+        return;
+      }
+
+      const maxSize = 5 * 1024 * 1024;
+
+      if (file.size > maxSize) {
+        reject(new Error("Ukuran gambar maksimal 5MB"));
         return;
       }
 
@@ -91,8 +80,8 @@ function CategoryForm({ initial, onSave, onCancel }) {
 
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const maxWidth = 1200;
-          const maxHeight = 800;
+          const maxWidth = 1000;
+          const maxHeight = 700;
 
           let width = img.width;
           let height = img.height;
@@ -102,122 +91,159 @@ function CategoryForm({ initial, onSave, onCancel }) {
               height = Math.round((height * maxWidth) / width);
               width = maxWidth;
             }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
+          } else if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
           }
 
           canvas.width = width;
           canvas.height = height;
 
           const ctx = canvas.getContext("2d");
+
+          if (!ctx) {
+            reject(new Error("Browser tidak mendukung kompres gambar"));
+            return;
+          }
+
           ctx.drawImage(img, 0, 0, width, height);
-
-          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(compressedBase64);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
         };
 
-        img.onerror = () => {
-          reject(new Error("Gagal membaca gambar"));
-        };
-
+        img.onerror = () => reject(new Error("Gagal membaca gambar"));
         img.src = event.target.result;
       };
 
-      reader.onerror = () => {
-        reject(new Error("Gagal membaca file"));
-      };
-
+      reader.onerror = () => reject(new Error("Gagal membaca file"));
       reader.readAsDataURL(file);
     });
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
+  const handleUpload = async (event) => {
+    const file = event.target.files?.[0];
 
     if (!file) return;
 
     try {
-      const imageBase64 = await compressImage(file);
-      set("image", imageBase64);
-    } catch (error) {
-      alert(error.message || "Gagal upload gambar");
+      const base64 = await compressImage(file);
+      set("image", base64);
+      setImageUrl("");
+    } catch (err) {
+      setError(err.message || "Gagal upload gambar");
     }
 
-    e.target.value = "";
+    event.target.value = "";
   };
 
-  const handleSave = () => {
-    if (!form.name.trim()) return;
+  const handleUseUrl = () => {
+    const url = imageUrl.trim();
+
+    if (!url) {
+      setError("URL gambar tidak boleh kosong");
+      return;
+    }
+
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      setError("URL gambar harus diawali http:// atau https://");
+      return;
+    }
+
+    set("image", url);
+    setImageUrl("");
+  };
+
+  const handleSubmit = () => {
+    const name = form.name.trim();
+
+    if (!name) {
+      setError("Nama kategori wajib diisi");
+      return;
+    }
 
     onSave({
-      ...form,
-      name: form.name.trim(),
-      description: form.description || "",
+      id: form.id,
+      name,
       image: form.image || "",
-      icon: form.icon || "Landmark",
+      emoji: form.emoji || "🏝️",
       isActive: Boolean(form.isActive),
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <button
+        type="button"
+        aria-label="Tutup modal"
+        onClick={onCancel}
+        className="absolute inset-0 bg-black/40"
+      />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-sm font-bold text-gray-900 mb-5">
-          {initial ? "Edit Kategori" : "Tambah Kategori"}
-        </h3>
+      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">
+              {initial ? "Edit Kategori" : "Tambah Kategori"}
+            </h3>
+            <p className="mt-1 text-xs text-gray-500">
+              Data kategori akan disimpan langsung ke database.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-60"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Nama Kategori *
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">
+              Nama Kategori <span className="text-red-500">*</span>
             </label>
             <input
-              required
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
               placeholder="Contoh: Pantai"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">
-              Icon{" "}
-              <span className="text-gray-400 font-normal">
-                (filter & tampilan compact)
-              </span>
+            <label className="mb-2 block text-xs font-medium text-gray-600">
+              Emoji
             </label>
 
-            <div className="grid grid-cols-5 gap-2">
-              {iconOptions.map(({ label, value, Icon }) => (
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+              {emojiOptions.map((emoji) => (
                 <button
-                  key={value}
+                  key={emoji}
                   type="button"
-                  onClick={() => set("icon", value)}
-                  className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
-                    form.icon === value
-                      ? "border-indigo-500 bg-indigo-50 text-indigo-600"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  onClick={() => set("emoji", emoji)}
+                  className={`flex h-10 items-center justify-center rounded-xl border text-lg transition ${
+                    form.emoji === emoji
+                      ? "border-indigo-500 bg-indigo-50"
+                      : "border-gray-200 hover:bg-gray-50"
                   }`}
                 >
-                  <Icon size={16} />
-                  <span className="text-[10px] font-medium">{label}</span>
+                  {emoji}
                 </button>
               ))}
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Image/Banner{" "}
-              <span className="text-gray-400 font-normal">
-                (card kategori di homepage)
-              </span>
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">
+              Gambar Kategori
             </label>
 
             {form.image ? (
@@ -225,83 +251,106 @@ function CategoryForm({ initial, onSave, onCancel }) {
                 <img
                   src={form.image}
                   alt="Preview kategori"
-                  className="w-full h-28 object-cover rounded-xl border border-gray-200"
+                  className="h-32 w-full rounded-xl border border-gray-200 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src =
+                      "https://placehold.co/800x400?text=Gambar+Tidak+Valid";
+                  }}
                 />
 
                 <button
                   type="button"
                   onClick={() => set("image", "")}
-                  className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white shadow"
+                  className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white shadow hover:bg-red-600"
                 >
-                  <X size={13} />
+                  <X size={14} />
                 </button>
 
-                <label className="mt-2 inline-block text-xs text-indigo-600 hover:underline cursor-pointer">
+                <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-indigo-600 hover:underline">
+                  <ImagePlus size={13} />
                   Ganti gambar
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={handleImageUpload}
+                    onChange={handleUpload}
                     className="hidden"
                   />
                 </label>
               </div>
             ) : (
-              <label className="w-full h-28 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors cursor-pointer">
-                <Plus size={22} />
-                <span className="text-xs">Upload Gambar</span>
+              <label className="flex h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 transition hover:border-indigo-300 hover:text-indigo-500">
+                <ImagePlus size={24} />
+                <span className="text-xs font-medium">
+                  Upload gambar dari perangkat
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  JPG, PNG, WEBP maksimal 5MB
+                </span>
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={handleImageUpload}
+                  onChange={handleUpload}
                   className="hidden"
                 />
               </label>
             )}
+
+            <div className="mt-3 flex gap-2">
+              <div className="relative flex-1">
+                <LinkIcon
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
+                <input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Atau tempel URL gambar"
+                  className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleUseUrl}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Pakai
+              </button>
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
-              Deskripsi Singkat
-            </label>
-            <textarea
-              rows={2}
-              value={form.description}
-              onChange={(e) => set("description", e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-none"
-              placeholder="Tulis deskripsi singkat kategori"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">
               Status
             </label>
             <select
               value={form.isActive ? "true" : "false"}
               onChange={(e) => set("isActive", e.target.value === "true")}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none bg-white"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
             >
-              <option value="true">Aktif (tampil di user web)</option>
-              <option value="false">Nonaktif (sembunyikan)</option>
+              <option value="true">Aktif - tampil di user web</option>
+              <option value="false">Nonaktif - sembunyikan</option>
             </select>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            disabled={saving}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60"
           >
             Batal
           </button>
 
           <button
             type="button"
-            onClick={handleSave}
-            className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60"
           >
+            {saving && <Loader2 size={14} className="animate-spin" />}
             Simpan
           </button>
         </div>
@@ -311,66 +360,185 @@ function CategoryForm({ initial, onSave, onCancel }) {
 }
 
 export default function Categories() {
-  const {
-    categories,
-    destinations,
-    addCategory,
-    updateCategory,
-    deleteCategory,
-  } = useAppStore();
-
+  const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
 
-  const filtered = categories.filter((category) =>
-    (category.name || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const fetchCategories = async () => {
+    try {
+      setLoading(true);
+      setError("");
 
-  const getCount = (name) => {
-    return destinations.filter((destination) => destination.category === name)
-      .length;
+      const response = await fetch(API_URL);
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Gagal mengambil data kategori");
+      }
+
+      setCategories(result.data || []);
+    } catch (err) {
+      setError(err.message || "Terjadi kesalahan saat mengambil kategori");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSave = (item) => {
-    if (item.id) {
-      updateCategory(item.id, item);
-    } else {
-      addCategory(item);
-    }
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
-    setFormOpen(false);
-    setEditing(null);
+  const filtered = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    return categories.filter((category) => {
+      const name = String(category.name || "").toLowerCase();
+
+      const matchSearch = !keyword || name.includes(keyword);
+
+      const matchStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && category.isActive) ||
+        (statusFilter === "inactive" && !category.isActive);
+
+      return matchSearch && matchStatus;
+    });
+  }, [categories, search, statusFilter]);
+
+  const activeCount = categories.filter((category) => category.isActive).length;
+  const inactiveCount = categories.length - activeCount;
+
+  const handleSave = async (item) => {
+    try {
+      setSaving(true);
+
+      const isEdit = Boolean(item.id);
+      const url = isEdit ? `${API_URL}/${item.id}` : API_URL;
+      const method = isEdit ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: item.name,
+          image: item.image,
+          emoji: item.emoji,
+          isActive: item.isActive,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Gagal menyimpan kategori");
+      }
+
+      await fetchCategories();
+      setFormOpen(false);
+      setEditing(null);
+    } catch (err) {
+      alert(err.message || "Gagal menyimpan kategori");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      setDeleting(true);
+
+      const response = await fetch(`${API_URL}/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Gagal menghapus kategori");
+      }
+
+      await fetchCategories();
+      setDeleteTarget(null);
+    } catch (err) {
+      alert(err.message || "Gagal menghapus kategori");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
     <div className="min-h-full bg-gray-50">
-      <div className="bg-white border-b border-gray-100 px-6 md:px-8 py-5 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-base font-bold text-gray-900">Kategori</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {categories.length} kategori ·{" "}
-            {categories.filter((category) => category.isActive).length} aktif
-          </p>
+      <div className="border-b border-gray-100 bg-white px-5 py-5 md:px-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-base font-bold text-gray-900">Kategori</h1>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Kelola kategori destinasi yang tersimpan di database.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={fetchCategories}
+              className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 shadow-sm transition hover:bg-gray-50"
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(null);
+                setFormOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              <Plus size={14} />
+              Tambah Kategori
+            </button>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shrink-0 shadow-sm"
-        >
-          <Plus size={14} />
-          Tambah
-        </button>
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p className="text-xs font-medium text-gray-500">Total Kategori</p>
+            <p className="mt-1 text-xl font-bold text-gray-900">
+              {categories.length}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+            <p className="text-xs font-medium text-emerald-600">Aktif</p>
+            <p className="mt-1 text-xl font-bold text-emerald-700">
+              {activeCount}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p className="text-xs font-medium text-gray-500">Nonaktif</p>
+            <p className="mt-1 text-xl font-bold text-gray-700">
+              {inactiveCount}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div className="px-6 md:px-8 py-5">
-        <div className="flex gap-3 mb-5">
-          <div className="relative">
+      <div className="px-5 py-5 md:px-8">
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="relative w-full md:max-w-sm">
             <Search
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -379,97 +547,122 @@ export default function Categories() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari kategori..."
-              className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 w-56"
+              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
             />
           </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 outline-none focus:ring-2 focus:ring-indigo-200 md:w-44"
+          >
+            <option value="all">Semua Status</option>
+            <option value="active">Aktif</option>
+            <option value="inactive">Nonaktif</option>
+          </select>
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="bg-white border border-gray-100 rounded-xl p-10 text-center text-sm text-gray-400">
-            Tidak ada kategori ditemukan
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center rounded-xl border border-gray-100 bg-white p-10 text-sm text-gray-500">
+            <Loader2 size={18} className="mr-2 animate-spin" />
+            Memuat kategori...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-xl border border-gray-100 bg-white p-10 text-center">
+            <p className="text-sm font-medium text-gray-700">
+              Tidak ada kategori ditemukan
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Coba tambah kategori baru atau ubah filter pencarian.
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((category) => (
-              <div
-                key={category.id}
-                className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden"
-              >
-                {category.image ? (
-                  <img
-                    src={category.image}
-                    alt={category.name}
-                    className="w-full h-24 object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-24 bg-gray-100 flex items-center justify-center">
-                    <CategoryIcon
-                      icon={category.icon}
-                      size={28}
-                      className="text-gray-300"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((category) => {
+              const statusClass = category.isActive
+                ? statusStyles.active
+                : statusStyles.inactive;
+
+              return (
+                <div
+                  key={category.id}
+                  className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  {category.image ? (
+                    <img
+                      src={category.image}
+                      alt={category.name}
+                      className="h-28 w-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src =
+                          "https://placehold.co/800x400?text=Gambar+Tidak+Valid";
+                      }}
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex h-28 w-full items-center justify-center bg-gray-100 text-4xl">
+                      {category.emoji || "🧭"}
+                    </div>
+                  )}
 
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                        <CategoryIcon
-                          icon={category.icon}
-                          size={14}
-                          className="text-indigo-500"
-                        />
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-lg">
+                          {category.emoji || "🧭"}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-gray-800">
+                            {category.name}
+                          </p>
+
+                          <span
+                            className={`mt-1 inline-flex rounded border px-1.5 py-0.5 text-xs font-medium ${statusClass}`}
+                          >
+                            {category.isActive ? "Aktif" : "Nonaktif"}
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">
-                          {category.name}
-                        </p>
-                        <span
-                          className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium border ${
-                            category.isActive
-                              ? statusStyles.true
-                              : statusStyles.false
-                          }`}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditing(category);
+                            setFormOpen(true);
+                          }}
+                          className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                          title="Edit kategori"
                         >
-                          {category.isActive ? "Aktif" : "Nonaktif"}
-                        </span>
+                          <Pencil size={13} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(category)}
+                          className="rounded-lg p-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                          title="Hapus kategori"
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditing(category);
-                          setFormOpen(true);
-                        }}
-                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
-                        <Pencil size={13} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(category.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                    <div className="mt-3 border-t border-gray-100 pt-3">
+                      <p className="text-xs text-gray-400">
+                        ID Kategori: {category.id}
+                      </p>
                     </div>
                   </div>
-
-                  <p className="text-xs text-gray-400 mt-2 line-clamp-2">
-                    {category.description}
-                  </p>
-
-                  <p className="text-xs text-indigo-600 font-medium mt-2">
-                    {getCount(category.name)} destinasi
-                  </p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -482,18 +675,21 @@ export default function Categories() {
             setFormOpen(false);
             setEditing(null);
           }}
+          saving={saving}
         />
       )}
 
       <ConfirmModal
         open={!!deleteTarget}
         title="Hapus Kategori"
-        description="Kategori ini akan dihapus secara permanen."
-        onConfirm={() => {
-          deleteCategory(deleteTarget);
-          setDeleteTarget(null);
-        }}
+        description={
+          deleteTarget
+            ? `Kategori "${deleteTarget.name}" akan dihapus secara permanen.`
+            : "Kategori ini akan dihapus secara permanen."
+        }
+        onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+        loading={deleting}
       />
     </div>
   );

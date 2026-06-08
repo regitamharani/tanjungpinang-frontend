@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useAppStore } from "@/store/appStore";
+import { useCallback, useEffect, useState } from "react";
 import {
   Plus,
   Pencil,
@@ -7,23 +6,43 @@ import {
   Globe,
   X,
   ImagePlus,
+  RefreshCw,
 } from "lucide-react";
 import ConfirmModal from "@/components/admin/ConfirmModal";
+
+const API_URL = "http://localhost:3000/api";
 
 const inputCls =
   "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
+const defaultForm = {
+  title: "",
+  subtitle: "",
+  image: "",
+  buttonText: "Jelajahi Sekarang",
+  buttonLink: "/destination",
+  badge: "Pilihan Editor",
+  isActive: false,
+};
+
+const isActiveValue = (value) => {
+  return value === true || value === 1 || value === "1" || value === "true";
+};
+
+const normalizeHighlight = (item) => ({
+  id: item.id,
+  title: item.title || "",
+  subtitle: item.subtitle || "",
+  image: item.image || "",
+  buttonText: item.buttonText || item.button_text || "Jelajahi Sekarang",
+  buttonLink: item.buttonLink || item.button_link || "/destination",
+  badge: item.badge || "Pilihan Editor",
+  isActive: isActiveValue(item.isActive ?? item.is_active),
+});
+
 function HighlightForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(
-    initial || {
-      title: "",
-      subtitle: "",
-      image: "",
-      buttonText: "Jelajahi Sekarang",
-      buttonLink: "/destinasi",
-      isActive: false,
-    }
-  );
+  const [form, setForm] = useState(initial || defaultForm);
+  const [saving, setSaving] = useState(false);
 
   const set = (key, value) => {
     setForm((prev) => ({
@@ -57,11 +76,9 @@ function HighlightForm({ initial, onSave, onCancel }) {
               height = Math.round((height * maxWidth) / width);
               width = maxWidth;
             }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
+          } else if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
           }
 
           canvas.width = width;
@@ -70,27 +87,20 @@ function HighlightForm({ initial, onSave, onCancel }) {
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, width, height);
 
-          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(compressedBase64);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
         };
 
-        img.onerror = () => {
-          reject(new Error("Gagal membaca gambar"));
-        };
-
+        img.onerror = () => reject(new Error("Gagal membaca gambar"));
         img.src = event.target.result;
       };
 
-      reader.onerror = () => {
-        reject(new Error("Gagal membaca file"));
-      };
-
+      reader.onerror = () => reject(new Error("Gagal membaca file"));
       reader.readAsDataURL(file);
     });
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
 
     if (!file) return;
 
@@ -101,26 +111,40 @@ function HighlightForm({ initial, onSave, onCancel }) {
       alert(error.message || "Gagal upload gambar");
     }
 
-    e.target.value = "";
+    event.target.value = "";
   };
 
-  const handleSave = () => {
-    if (!form.title.trim()) return;
+  const handleSave = async () => {
+    if (!form.title.trim()) {
+      alert("Judul wajib diisi.");
+      return;
+    }
 
-    onSave({
-      ...form,
-      title: form.title.trim(),
-      subtitle: form.subtitle || "",
-      image: form.image || "",
-      buttonText: form.buttonText || "Jelajahi Sekarang",
-      buttonLink: form.buttonLink || "/destinasi",
-      isActive: Boolean(form.isActive),
-    });
+    try {
+      setSaving(true);
+
+      await onSave({
+        ...form,
+        title: form.title.trim(),
+        subtitle: form.subtitle || "",
+        image: form.image || "",
+        buttonText: form.buttonText || "Jelajahi Sekarang",
+        buttonLink: form.buttonLink || "/destination",
+        badge: form.badge || "Pilihan Editor",
+        isActive: form.isActive ? true : false,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        onClick={onCancel}
+      />
 
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto">
         <h3 className="text-sm font-bold text-gray-900 mb-5">
@@ -134,7 +158,7 @@ function HighlightForm({ initial, onSave, onCancel }) {
             </label>
             <input
               value={form.title}
-              onChange={(e) => set("title", e.target.value)}
+              onChange={(event) => set("title", event.target.value)}
               className={inputCls}
               placeholder="Jelajahi Tanjungpinang"
             />
@@ -147,9 +171,21 @@ function HighlightForm({ initial, onSave, onCancel }) {
             <textarea
               rows={2}
               value={form.subtitle}
-              onChange={(e) => set("subtitle", e.target.value)}
+              onChange={(event) => set("subtitle", event.target.value)}
               className={`${inputCls} resize-none`}
               placeholder="Kota Gurindam, Kota Bersejarah..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+              Badge
+            </label>
+            <input
+              value={form.badge}
+              onChange={(event) => set("badge", event.target.value)}
+              className={inputCls}
+              placeholder="Pilihan Editor"
             />
           </div>
 
@@ -205,7 +241,7 @@ function HighlightForm({ initial, onSave, onCancel }) {
               </label>
               <input
                 value={form.buttonText}
-                onChange={(e) => set("buttonText", e.target.value)}
+                onChange={(event) => set("buttonText", event.target.value)}
                 className={inputCls}
               />
             </div>
@@ -216,9 +252,9 @@ function HighlightForm({ initial, onSave, onCancel }) {
               </label>
               <input
                 value={form.buttonLink}
-                onChange={(e) => set("buttonLink", e.target.value)}
+                onChange={(event) => set("buttonLink", event.target.value)}
                 className={inputCls}
-                placeholder="/destinasi"
+                placeholder="/destination/pantai-trikora"
               />
             </div>
           </div>
@@ -229,7 +265,9 @@ function HighlightForm({ initial, onSave, onCancel }) {
             </label>
             <select
               value={form.isActive ? "true" : "false"}
-              onChange={(e) => set("isActive", e.target.value === "true")}
+              onChange={(event) =>
+                set("isActive", event.target.value === "true")
+              }
               className={`${inputCls} bg-white`}
             >
               <option value="false">Nonaktif</option>
@@ -247,7 +285,8 @@ function HighlightForm({ initial, onSave, onCancel }) {
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            disabled={saving}
+            className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60"
           >
             Batal
           </button>
@@ -255,9 +294,10 @@ function HighlightForm({ initial, onSave, onCancel }) {
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+            disabled={saving}
+            className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60"
           >
-            Simpan
+            {saving ? "Menyimpan..." : "Simpan"}
           </button>
         </div>
       </div>
@@ -266,26 +306,120 @@ function HighlightForm({ initial, onSave, onCancel }) {
 }
 
 export default function HomepageHighlight() {
-  const {
-    homepageHighlights,
-    updateHighlight,
-    addHighlight,
-    deleteHighlight,
-  } = useAppStore();
+  const [homepageHighlights, setHomepageHighlights] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState("");
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const handleSave = (data) => {
-    if (data.id) {
-      updateHighlight(data.id, data);
-    } else {
-      addHighlight(data);
+  const fetchHighlights = useCallback(async () => {
+    try {
+      setLoading(true);
+      setErrorText("");
+
+      const res = await fetch(`${API_URL}/homepage-highlights`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        },
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setHomepageHighlights([]);
+        setErrorText(json.message || "Gagal mengambil highlight");
+        return;
+      }
+
+      setHomepageHighlights((json.data || []).map(normalizeHighlight));
+    } catch {
+      setHomepageHighlights([]);
+      setErrorText("Tidak bisa terhubung ke server.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHighlights();
+  }, [fetchHighlights]);
+
+  const handleSave = async (data) => {
+    const isEdit = data.id;
+    const url = isEdit
+      ? `${API_URL}/homepage-highlights/${data.id}`
+      : `${API_URL}/homepage-highlights`;
+
+    const method = isEdit ? "PUT" : "POST";
+
+    const payload = {
+      title: data.title,
+      subtitle: data.subtitle,
+      image: data.image,
+      buttonText: data.buttonText,
+      buttonLink: data.buttonLink,
+      badge: data.badge,
+      isActive: data.isActive ? true : false,
+    };
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      alert(json.message || "Gagal menyimpan highlight");
+      return;
     }
 
     setFormOpen(false);
     setEditing(null);
+    await fetchHighlights();
+  };
+
+  const handleActivate = async (id) => {
+    const res = await fetch(`${API_URL}/homepage-highlights/${id}/activate`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+      },
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      alert(json.message || "Gagal mengaktifkan highlight");
+      return;
+    }
+
+    await fetchHighlights();
+  };
+
+  const handleDelete = async (id) => {
+    const res = await fetch(`${API_URL}/homepage-highlights/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+      },
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      alert(json.message || "Gagal menghapus highlight");
+      return;
+    }
+
+    setDeleteTarget(null);
+    await fetchHighlights();
   };
 
   const activeHighlight = homepageHighlights.find((item) => item.isActive);
@@ -298,21 +432,32 @@ export default function HomepageHighlight() {
             Homepage Highlight
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Section hero/banner utama di homepage user
+            Section pilihan editor/banner yang tampil di homepage user.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shrink-0 shadow-sm"
-        >
-          <Plus size={14} />
-          Tambah
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchHighlights}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shrink-0 shadow-sm"
+          >
+            <Plus size={14} />
+            Tambah
+          </button>
+        </div>
       </div>
 
       <div className="px-6 md:px-8 py-6 max-w-3xl">
@@ -325,105 +470,117 @@ export default function HomepageHighlight() {
           </div>
         )}
 
-        <div className="space-y-4">
-          {homepageHighlights.map((item) => (
-            <div
-              key={item.id}
-              className={`bg-white border rounded-xl shadow-sm overflow-hidden ${
-                item.isActive ? "border-emerald-200" : "border-gray-100"
-              }`}
-            >
-              {item.image ? (
-                <img
-                  src={item.image}
-                  alt={item.title}
-                  className="w-full h-36 object-cover"
-                />
-              ) : (
-                <div className="w-full h-36 bg-gray-100 flex items-center justify-center text-gray-400">
-                  <ImagePlus size={28} />
-                </div>
-              )}
+        {loading ? (
+          <div className="py-16 text-center bg-white border border-gray-100 rounded-xl">
+            <p className="text-sm text-gray-400">Memuat highlight...</p>
+          </div>
+        ) : errorText ? (
+          <div className="py-16 text-center bg-white border border-red-100 rounded-xl">
+            <p className="text-sm text-red-500">{errorText}</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {homepageHighlights.map((item) => (
+              <div
+                key={item.id}
+                className={`bg-white border rounded-xl shadow-sm overflow-hidden ${
+                  item.isActive ? "border-emerald-200" : "border-gray-100"
+                }`}
+              >
+                {item.image ? (
+                  <img
+                    src={item.image}
+                    alt={item.title}
+                    className="w-full h-36 object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-36 bg-gray-100 flex items-center justify-center text-gray-400">
+                    <ImagePlus size={28} />
+                  </div>
+                )}
 
-              <div className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-sm font-bold text-gray-900">
-                        {item.title}
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-bold text-gray-900">
+                          {item.title}
+                        </p>
+
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${
+                            item.isActive
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-gray-100 text-gray-500 border-gray-200"
+                          }`}
+                        >
+                          {item.isActive ? "Aktif" : "Nonaktif"}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-gray-500 mb-2 line-clamp-2">
+                        {item.subtitle}
                       </p>
 
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${
-                          item.isActive
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-gray-100 text-gray-500 border-gray-200"
-                        }`}
-                      >
-                        {item.isActive ? "Aktif" : "Nonaktif"}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-xs font-medium">
+                          {item.badge}
+                        </span>
+
+                        <span className="px-2 py-0.5 bg-slate-50 text-slate-600 rounded text-xs font-medium">
+                          {item.buttonText}
+                        </span>
+
+                        <span className="text-xs text-gray-400">
+                          {item.buttonLink}
+                        </span>
+                      </div>
                     </div>
 
-                    <p className="text-xs text-gray-500 mb-2">
-                      {item.subtitle}
-                    </p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!item.isActive && (
+                        <button
+                          type="button"
+                          onClick={() => handleActivate(item.id)}
+                          className="px-2.5 py-1 text-xs border border-emerald-200 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors"
+                        >
+                          Aktifkan
+                        </button>
+                      )}
 
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-xs font-medium">
-                        {item.buttonText}
-                      </span>
-
-                      <span className="text-xs text-gray-400">
-                        {item.buttonLink}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    {!item.isActive && (
                       <button
                         type="button"
-                        onClick={() =>
-                          updateHighlight(item.id, { isActive: true })
-                        }
-                        className="px-2.5 py-1 text-xs border border-emerald-200 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors"
+                        onClick={() => {
+                          setEditing(item);
+                          setFormOpen(true);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                       >
-                        Aktifkan
+                        <Pencil size={13} />
                       </button>
-                    )}
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditing(item);
-                        setFormOpen(true);
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <Pencil size={13} />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(item.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(item.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {homepageHighlights.length === 0 && (
-            <div className="py-16 text-center bg-white border border-gray-100 rounded-xl">
-              <p className="text-sm text-gray-400">
-                Belum ada homepage highlight
-              </p>
-            </div>
-          )}
-        </div>
+            {homepageHighlights.length === 0 && (
+              <div className="py-16 text-center bg-white border border-gray-100 rounded-xl">
+                <p className="text-sm text-gray-400">
+                  Belum ada homepage highlight
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {formOpen && (
@@ -438,13 +595,10 @@ export default function HomepageHighlight() {
       )}
 
       <ConfirmModal
-        open={!!deleteTarget}
+        open={deleteTarget !== null}
         title="Hapus Highlight"
         description="Highlight ini akan dihapus secara permanen."
-        onConfirm={() => {
-          deleteHighlight(deleteTarget);
-          setDeleteTarget(null);
-        }}
+        onConfirm={() => handleDelete(deleteTarget)}
         onCancel={() => setDeleteTarget(null)}
       />
     </div>

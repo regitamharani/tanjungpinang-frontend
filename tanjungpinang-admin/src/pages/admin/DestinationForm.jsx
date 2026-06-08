@@ -1,9 +1,18 @@
-import { useState } from "react";
-import { useAppStore } from "@/store/appStore";
+import { useEffect, useState } from "react";
 import { X, Plus, ExternalLink, ChevronLeft } from "lucide-react";
 
-const BUDGET_OPTIONS = ["hemat", "menengah", "premium"];
+const API_URL = "http://localhost:3000/api";
 
+const categories = [
+  { id: 1, name: "Wisata Alam", isActive: true },
+  { id: 2, name: "Wisata Pantai", isActive: true },
+  { id: 3, name: "Wisata Sejarah", isActive: true },
+  { id: 4, name: "Wisata Kuliner", isActive: true },
+  { id: 5, name: "Wisata Budaya", isActive: true },
+  { id: 6, name: "Wisata Religi", isActive: true },
+];
+
+const BUDGET_OPTIONS = ["hemat", "menengah", "premium"];
 const GROUP_OPTIONS = ["solo", "couple", "family", "group"];
 
 const FACILITIES = [
@@ -39,9 +48,7 @@ function Field({ label, children, hint }) {
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-1.5">
         {label}
-        {hint && (
-          <span className="text-gray-400 font-normal ml-1">{hint}</span>
-        )}
+        {hint && <span className="text-gray-400 font-normal ml-1">{hint}</span>}
       </label>
       {children}
     </div>
@@ -67,7 +74,7 @@ const defaultForm = {
   googleRating: 0,
   googleReviewCount: 0,
   googleMapsUrl: "",
-  googleLastSyncAt: null,
+  googleLastSyncAt: "",
   estimatedCostMin: 0,
   estimatedCostMax: 0,
   recommendedDuration: "",
@@ -80,45 +87,157 @@ const defaultForm = {
   isPublished: false,
 };
 
+const readArray = (value) => {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const normalizeGallery = (gallery, galleryImages) => {
+  const normalize = (value) => {
+    return readArray(value)
+      .map((item, index) => {
+        if (typeof item === "string") {
+          return {
+            id: Date.now() + index,
+            url: item,
+            caption: "",
+            sortOrder: index + 1,
+          };
+        }
+
+        return {
+          id: item.id || Date.now() + index,
+          url: item.url || item.image || item.src || item.gambar || "",
+          caption: item.caption || "",
+          sortOrder: item.sortOrder || index + 1,
+        };
+      })
+      .filter((item) => item.url);
+  };
+
+  const fromGallery = normalize(gallery);
+  const fromGalleryImages = normalize(galleryImages);
+
+  return fromGallery.length > 0 ? fromGallery : fromGalleryImages;
+};
+
+const buildInitialForm = (initial) => {
+  if (!initial) return defaultForm;
+
+  const matchedCategory = categories.find(
+    (category) => category.name === (initial.category || initial.kategori)
+  );
+
+  return {
+    ...defaultForm,
+    ...initial,
+
+    categoryId: matchedCategory ? String(matchedCategory.id) : "",
+    category: initial.category || initial.kategori || "",
+
+    mainImage:
+      initial.mainImage ||
+      initial.main_image ||
+      initial.image ||
+      initial.gambar ||
+      initial.img ||
+      "",
+    image:
+      initial.image ||
+      initial.mainImage ||
+      initial.main_image ||
+      initial.gambar ||
+      initial.img ||
+      "",
+
+    location: initial.location || initial.address || initial.lokasi || "",
+
+    mapsUrl:
+      initial.mapsUrl ||
+      initial.mapsLink ||
+      initial.googleMapsUrl ||
+      initial.google_maps_url ||
+      initial.maps_url ||
+      "",
+    mapsLink:
+      initial.mapsLink ||
+      initial.mapsUrl ||
+      initial.googleMapsUrl ||
+      initial.google_maps_url ||
+      initial.maps_url ||
+      "",
+
+    fullDescription:
+      initial.fullDescription ||
+      initial.full_description ||
+      initial.description ||
+      initial.deskripsi ||
+      "",
+    shortDescription:
+      initial.shortDescription ||
+      initial.short_description ||
+      initial.summary ||
+      initial.deskripsiSingkat ||
+      initial.description ||
+      "",
+
+    openingHours: initial.openingHours || initial.opening_hours || "",
+    ticketPrice: initial.ticketPrice || initial.ticket_price || 0,
+
+    googlePlaceId: initial.googlePlaceId || initial.google_place_id || "",
+    googleRating: initial.googleRating || initial.google_rating || 0,
+    googleReviewCount:
+      initial.googleReviewCount || initial.google_review_count || 0,
+
+    estimatedCostMin: initial.estimatedCostMin || initial.estimated_cost_min || 0,
+    estimatedCostMax: initial.estimatedCostMax || initial.estimated_cost_max || 0,
+
+    recommendedDuration:
+      initial.recommendedDuration || initial.recommended_duration || "",
+    bestVisitTime: initial.bestVisitTime || initial.best_visit_time || "",
+    travelTips: initial.travelTips || initial.travel_tips || "",
+    transportRecommendation:
+      initial.transportRecommendation || initial.transport_recommendation || "",
+
+    aiRecommended: Boolean(initial.aiRecommended || initial.ai_recommended),
+    suitableForBudget:
+      initial.suitableForBudget || initial.suitable_for_budget || "hemat",
+
+    suitableForGroup:
+      readArray(initial.suitableForGroup).length > 0
+        ? readArray(initial.suitableForGroup)
+        : readArray(initial.suitable_for_group),
+
+    facilities: readArray(initial.facilities),
+
+    gallery: normalizeGallery(
+      initial.gallery,
+      initial.galleryImages || initial.gallery_images
+    ),
+
+    isPublished: Boolean(initial.isPublished ?? initial.is_published),
+  };
+};
+
 export default function DestinationForm({ initial, onSave, onCancel }) {
-  const { categories, addDestination, updateDestination } = useAppStore();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [form, setForm] = useState(() => buildInitialForm(initial));
 
-  const [form, setForm] = useState(() => {
-    if (!initial) return defaultForm;
-
-    return {
-      ...defaultForm,
-      ...initial,
-      mainImage: initial.mainImage || initial.image || initial.img || "",
-      image: initial.image || initial.mainImage || initial.img || "",
-      location: initial.location || initial.address || initial.lokasi || "",
-      mapsUrl: initial.mapsUrl || initial.mapsLink || initial.googleMapsUrl || "",
-      mapsLink: initial.mapsLink || initial.mapsUrl || initial.googleMapsUrl || "",
-      fullDescription:
-        initial.fullDescription || initial.description || initial.deskripsi || "",
-      shortDescription:
-        initial.shortDescription || initial.summary || initial.deskripsiSingkat || "",
-      gallery: Array.isArray(initial.gallery)
-        ? initial.gallery.map((item, index) => {
-            if (typeof item === "string") {
-              return {
-                id: Date.now() + index,
-                url: item,
-                caption: "",
-                sortOrder: index + 1,
-              };
-            }
-
-            return {
-              id: item.id || Date.now() + index,
-              url: item.url || item.image || item.src || "",
-              caption: item.caption || "",
-              sortOrder: item.sortOrder || index + 1,
-            };
-          })
-        : [],
-    };
-  });
+  useEffect(() => {
+    setForm(buildInitialForm(initial));
+  }, [initial]);
 
   const set = (key, value) => {
     setForm((prev) => ({
@@ -152,11 +271,9 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
               height = Math.round((height * maxWidth) / width);
               width = maxWidth;
             }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
+          } else if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
           }
 
           canvas.width = width;
@@ -165,28 +282,20 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, width, height);
 
-          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(compressedBase64);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
         };
 
-        img.onerror = () => {
-          reject(new Error("Gagal membaca gambar"));
-        };
-
+        img.onerror = () => reject(new Error("Gagal membaca gambar"));
         img.src = event.target.result;
       };
 
-      reader.onerror = () => {
-        reject(new Error("Gagal membaca file"));
-      };
-
+      reader.onerror = () => reject(new Error("Gagal membaca file"));
       reader.readAsDataURL(file);
     });
   };
 
   const handleMainImageUpload = async (e) => {
     const file = e.target.files?.[0];
-
     if (!file) return;
 
     try {
@@ -206,11 +315,17 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
 
   const handleGalleryUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-
     if (files.length === 0) return;
 
     const currentGallery = form.gallery || [];
     const remainingSlots = 8 - currentGallery.length;
+
+    if (remainingSlots <= 0) {
+      alert("Maksimal 8 gambar galeri.");
+      e.target.value = "";
+      return;
+    }
+
     const selectedFiles = files.slice(0, remainingSlots);
 
     try {
@@ -238,52 +353,116 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
     e.target.value = "";
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const selectedCategory = categories.find(
       (category) => category.id === Number(form.categoryId)
     );
 
-    const finalForm = {
-      ...form,
+    const categoryName = selectedCategory?.name || form.category;
 
-      category: selectedCategory?.name || form.category,
-
-      mainImage: form.mainImage || form.image || "",
-      image: form.mainImage || form.image || "",
-
-      location: form.location || "",
-      address: form.location || "",
-
-      description: form.fullDescription || form.shortDescription || "",
-      fullDescription: form.fullDescription || "",
-      shortDescription: form.shortDescription || "",
-
-      mapsUrl: form.mapsUrl || "",
-      mapsLink: form.mapsUrl || form.mapsLink || "",
-
-      ticketPrice: Number(form.ticketPrice) || 0,
-      googleRating: Number(form.googleRating) || 0,
-      googleReviewCount: Number(form.googleReviewCount) || 0,
-      estimatedCostMin: Number(form.estimatedCostMin) || 0,
-      estimatedCostMax: Number(form.estimatedCostMax) || 0,
-
-      gallery: (form.gallery || []).map((item, index) => ({
-        id: item.id || Date.now() + index,
-        url: item.url || item.image || item.src || "",
-        caption: item.caption || "",
-        sortOrder: item.sortOrder || index + 1,
-      })),
-    };
-
-    if (initial) {
-      updateDestination(initial.id, finalForm);
-    } else {
-      addDestination(finalForm);
+    if (!form.name || !categoryName || !form.location) {
+      alert("Nama, kategori, dan lokasi wajib diisi.");
+      return;
     }
 
-    onSave();
+    const description = form.fullDescription || form.shortDescription;
+
+    if (!description) {
+      alert("Deskripsi destinasi wajib diisi.");
+      return;
+    }
+
+    const galleryPayload = (form.gallery || [])
+      .map((item, index) => {
+        if (typeof item === "string") {
+          return {
+            id: Date.now() + index,
+            url: item,
+            caption: "",
+            sortOrder: index + 1,
+          };
+        }
+
+        return {
+          id: item.id || Date.now() + index,
+          url: item.url || item.image || item.src || "",
+          caption: item.caption || "",
+          sortOrder: item.sortOrder || index + 1,
+        };
+      })
+      .filter((item) => item.url);
+
+    const payload = {
+      name: form.name,
+      category: categoryName,
+      location: form.location || "",
+      description,
+
+      image: form.mainImage || form.image || "",
+      gallery: galleryPayload,
+
+      openingHours: form.openingHours || "",
+      ticketPrice: Number(form.ticketPrice) || 0,
+
+      mapsUrl: form.mapsUrl || form.mapsLink || "",
+      googlePlaceId: form.googlePlaceId || "",
+      googleRating: Number(form.googleRating) || 0,
+      googleReviewCount: Number(form.googleReviewCount) || 0,
+
+      estimatedCostMin: Number(form.estimatedCostMin) || 0,
+      estimatedCostMax: Number(form.estimatedCostMax) || 0,
+      recommendedDuration: form.recommendedDuration || "",
+      bestVisitTime: form.bestVisitTime || "",
+      travelTips: form.travelTips || "",
+      transportRecommendation: form.transportRecommendation || "",
+
+      aiRecommended: Boolean(form.aiRecommended),
+      suitableForBudget: form.suitableForBudget || "hemat",
+      suitableForGroup: form.suitableForGroup || [],
+      facilities: form.facilities || [],
+
+      isPublished: Boolean(form.isPublished),
+    };
+
+    try {
+      setIsSubmitting(true);
+
+      const url = initial
+        ? `${API_URL}/destinations/${initial.id}`
+        : `${API_URL}/destinations`;
+
+      const method = initial ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        alert(json.message || "Gagal menyimpan destinasi");
+        return;
+      }
+
+      alert(
+        initial
+          ? "Destinasi berhasil diperbarui"
+          : "Destinasi berhasil ditambahkan"
+      );
+
+      onSave();
+    } catch {
+      alert("Tidak bisa terhubung ke server. Pastikan backend berjalan.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleFacility = (facility) => {
@@ -386,8 +565,9 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
               </Field>
             </div>
 
-            <Field label="Lokasi / Alamat">
+            <Field label="Lokasi / Alamat *">
               <input
+                required
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
                 className={inputCls}
@@ -405,8 +585,9 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
               />
             </Field>
 
-            <Field label="Deskripsi Lengkap" hint="(tampil di halaman detail)">
+            <Field label="Deskripsi Lengkap *" hint="(tampil di halaman detail)">
               <textarea
+                required
                 rows={4}
                 value={form.fullDescription}
                 onChange={(e) => set("fullDescription", e.target.value)}
@@ -724,15 +905,21 @@ export default function DestinationForm({ initial, onSave, onCancel }) {
               type="button"
               onClick={onCancel}
               className="px-5 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={isSubmitting}
             >
               Batal
             </button>
 
             <button
               type="submit"
-              className="px-5 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {initial ? "Simpan Perubahan" : "Tambah Destinasi"}
+              {isSubmitting
+                ? "Menyimpan..."
+                : initial
+                ? "Simpan Perubahan"
+                : "Tambah Destinasi"}
             </button>
           </div>
         </form>
