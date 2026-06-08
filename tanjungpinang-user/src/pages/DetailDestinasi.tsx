@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -15,22 +15,26 @@ import {
   Eye,
   Globe,
   ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import Footer from "@/components/layout/Footer";
-import { isLoggedIn, getUser } from "@/services/api";
+import { isLoggedIn } from "@/services/api";
+
+const API_URL = "http://localhost:3000/api";
 
 interface Destination {
   id: number;
   slug: string;
   name: string;
-  categoryId: number;
   category: string;
   location: string;
+  description: string;
   shortDescription: string;
   fullDescription: string;
   mainImage: string;
+  image: string;
   galleryImages: string[];
   facilities: string[];
   openingHours: string;
@@ -50,7 +54,7 @@ interface Destination {
 interface Review {
   id: number;
   destinationId: number;
-  userId: number;
+  userId: number | null;
   userName: string;
   userPhoto: string;
   rating: number;
@@ -59,188 +63,189 @@ interface Review {
   status: "visible" | "pending" | "hidden";
 }
 
-interface VisitedDestination {
-  id: number;
-  userId: number;
-  destinationId: number;
-  visitedAt: string;
-}
+const getLocalUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "null");
+  } catch {
+    return null;
+  }
+};
 
-const dummyVisited: VisitedDestination[] = [
-  { id: 1, userId: 1, destinationId: 1, visitedAt: "2025-03-15" },
-  { id: 2, userId: 1, destinationId: 2, visitedAt: "2025-04-20" },
-];
+const getUserId = () => {
+  const localUser = getLocalUser();
+  return localUser?.id || localUser?.userId || localUser?.user_id || null;
+};
 
-const dummyReviews: Review[] = [
-  {
-    id: 1,
-    destinationId: 1,
-    userId: 2,
-    userName: "Ahmad Fauzi",
-    userPhoto: "",
-    rating: 5,
-    comment:
-      "Tempat yang sangat menakjubkan! Arsitektur masjidnya sangat indah dan bersejarah. Wajib dikunjungi kalau ke Tanjung Pinang.",
-    createdAt: "2025-04-10",
-    status: "visible",
-  },
-  {
-    id: 2,
-    destinationId: 1,
-    userId: 3,
-    userName: "Siti Rahayu",
-    userPhoto: "",
-    rating: 5,
-    comment:
-      "Perjalanan dengan pompong sangat menyenangkan. Pulau Penyengat penuh cerita sejarah yang luar biasa.",
-    createdAt: "2025-03-28",
-    status: "visible",
-  },
-  {
-    id: 3,
-    destinationId: 1,
-    userId: 4,
-    userName: "Budi Santoso",
-    userPhoto: "",
-    rating: 4,
-    comment:
-      "Sangat berkesan. Masjidnya terawat dengan baik. Tapi jalanannya agak panas siang hari.",
-    createdAt: "2025-02-15",
-    status: "visible",
-  },
-  {
-    id: 4,
-    destinationId: 1,
-    userId: 5,
-    userName: "Dewi Kartika",
-    userPhoto: "",
-    rating: 5,
-    comment:
-      "Sangat puas berkunjung ke sini. Suasananya tenang dan damai. Pemandangan sekitar pulau juga indah banget!",
-    createdAt: "2025-01-20",
-    status: "visible",
-  },
-  {
-    id: 5,
-    destinationId: 1,
-    userId: 6,
-    userName: "Rizal Hakim",
-    userPhoto: "",
-    rating: 4,
-    comment:
-      "Tempatnya bagus, sejarahnya kaya. Sarankan datang pagi biar tidak terlalu panas.",
-    createdAt: "2024-12-05",
-    status: "visible",
-  },
-];
+const formatTicketPrice = (price: any) => {
+  const numberPrice = Number(price || 0);
 
-const DUMMY_DESTINATIONS: Destination[] = [
-  {
-    id: 1,
-    slug: "masjid-raya-penyengat",
-    name: "Masjid Raya Sultan Riau Penyengat",
-    categoryId: 1,
-    category: "Wisata Religi",
-    location: "Pulau Penyengat",
+  if (!numberPrice) return "Gratis / Tidak tersedia";
+
+  return `Rp ${numberPrice.toLocaleString("id-ID")}/orang`;
+};
+
+const parseArray = (value: any): string[] => {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item: any) => {
+        if (typeof item === "string") return item;
+        return item.url || item.name || item.label || item.title || "";
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item: any) => {
+            if (typeof item === "string") return item;
+            return item.url || item.name || item.label || item.title || "";
+          })
+          .filter(Boolean);
+      }
+    } catch {
+      return value
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+};
+
+const parseGallery = (value: any): string[] => {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item: any) => {
+        if (typeof item === "string") return item;
+        return item.url || item.image || item.src || "";
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item: any) => {
+            if (typeof item === "string") return item;
+            return item.url || item.image || item.src || "";
+          })
+          .filter(Boolean);
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const normalizeDestination = (data: any): Destination => {
+  const image = data.mainImage || data.image || data.gambar || data.img || "";
+
+  const facilities = parseArray(data.facilities);
+
+  const galleryImages =
+    Array.isArray(data.galleryImages) && data.galleryImages.length > 0
+      ? data.galleryImages
+      : parseGallery(data.gallery);
+
+  const tipsFromTravelTips = data.travelTips
+    ? String(data.travelTips)
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    id: Number(data.id || 0),
+    slug: data.slug || "",
+    name: data.name || data.nama || "Destinasi",
+    category: data.category || data.kategori || "Wisata",
+    location: data.location || data.lokasi || "-",
+
+    description: data.description || data.deskripsi || "",
     shortDescription:
-      "Masjid bersejarah yang konon dibangun dengan campuran putih telur.",
+      data.shortDescription ||
+      data.summary ||
+      data.description ||
+      data.deskripsi ||
+      "",
     fullDescription:
-      "Masjid Raya Sultan Riau adalah masjid bersejarah yang terletak di Pulau Penyengat, Kota Tanjung Pinang. Masjid ini dibangun pada tahun 1832 di masa pemerintahan Yang Dipertuan Muda VII Raja Abdurrahman. Keunikan utama dari masjid ini adalah campuran putih telur pada bahan bangunannya yang dipercaya membuatnya kokoh berdiri hingga saat ini. Warna kuning cerah dan hijau pada bangunan masjid menjadikannya ikon wisata yang sangat mencolok di pulau ini. Pulau Penyengat sendiri merupakan bekas ibu kota Kerajaan Riau-Lingga, sebuah kerajaan Melayu yang pernah berjaya di kawasan ini.",
-    mainImage:
-      "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?q=80&w=1600",
-    galleryImages: [
-      "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?q=80&w=1200",
-      "https://images.unsplash.com/photo-1578662996442-48f60103fc96?q=80&w=1200",
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200",
-      "https://images.unsplash.com/photo-1509316785289-025f5b846b35?q=80&w=1200",
-      "https://images.unsplash.com/photo-1552832230-c0197dd311b5?q=80&w=1200",
-      "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=1200",
-      "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=1200",
-      "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=1200",
-    ],
-    facilities: [
-      "Area Parkir Pompong",
-      "Kamar Mandi/Toilet",
-      "Tempat Wudu",
-      "Perpustakaan Mini",
-      "Penyewaan Pakaian Muslim",
-      "Warung Makan",
-      "Pemandu Wisata",
-    ],
-    openingHours: "Setiap Hari, 04.00 – 21.00 WIB",
-    ticketPrice: "Gratis (Biaya pompong Rp 8.000/orang)",
-    mapsUrl: "https://maps.google.com/?q=Masjid+Raya+Sultan+Riau+Penyengat",
-    googlePlaceId: "ChIJexample123",
-    googleRating: 4.8,
-    googleReviewCount: 3200,
+      data.fullDescription ||
+      data.description ||
+      data.deskripsi ||
+      "Belum ada deskripsi lengkap untuk destinasi ini.",
+
+    mainImage: image,
+    image,
+
+    galleryImages,
+
+    facilities,
+
+    openingHours:
+      data.openingHours ||
+      data.opening_hours ||
+      "Jam operasional belum tersedia",
+
+    ticketPrice:
+      typeof data.ticketPrice === "string"
+        ? data.ticketPrice
+        : formatTicketPrice(data.ticketPrice || data.ticket_price),
+
+    mapsUrl:
+      data.mapsUrl ||
+      data.mapsLink ||
+      data.googleMapsUrl ||
+      data.google_maps_url ||
+      "",
+
+    googlePlaceId: data.googlePlaceId || data.google_place_id || "",
+
+    googleRating: Number(data.googleRating || data.google_rating || 0),
+    googleReviewCount: Number(
+      data.googleReviewCount || data.google_review_count || 0
+    ),
+
     googleMapsUrl:
-      "https://maps.google.com/?q=Masjid+Raya+Sultan+Riau+Penyengat",
-    ratingAverage: 4.9,
-    reviewCount: 2087,
-    visitCount: 45200,
-    tips: [
-      "Gunakan pakaian yang sopan dan menutup aurat",
-      "Bawa uang tunai pecahan kecil untuk transportasi kapal pompong",
-      "Datang saat pagi atau sore hari untuk menghindari terik matahari",
-      "Jaga ketenangan karena masih digunakan sebagai tempat ibadah aktif",
-    ],
-    isPublished: true,
-  },
-  {
-    id: 2,
-    slug: "pantai-trikora",
-    name: "Pantai Trikora",
-    categoryId: 2,
-    category: "Wisata Pantai",
-    location: "Bintan Timur",
-    shortDescription:
-      "Pantai berpasir putih dengan air jernih dan pemandangan indah.",
-    fullDescription:
-      "Pantai Trikora adalah salah satu pantai paling populer di Pulau Bintan, Kepulauan Riau. Dengan pasir putih yang lembut dan air laut yang jernih berwarna biru kehijauan, pantai ini menjadi surga bagi pecinta wisata bahari. Sepanjang garis pantai terdapat pohon-pohon kelapa yang memberikan keteduhan alami. Pengunjung dapat menikmati berbagai aktivitas seperti berenang, snorkeling, bermain pasir, atau sekadar bersantai menikmati pemandangan sunset yang memukau.",
-    mainImage:
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1600",
-    galleryImages: [
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200",
-      "https://images.unsplash.com/photo-1519046904884-53103b34b206?q=80&w=1200",
-      "https://images.unsplash.com/photo-1473116763249-2faaef81ccda?q=80&w=1200",
-      "https://images.unsplash.com/photo-1484821582734-6692f35f2297?q=80&w=1200",
-      "https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=1200",
-      "https://images.unsplash.com/photo-1559827291-72ee739d0d9a?q=80&w=1200",
-      "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=1200",
-      "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=1200",
-    ],
-    facilities: [
-      "Area Parkir",
-      "Kamar Ganti",
-      "Toilet Umum",
-      "Warung Makan",
-      "Penyewaan Pelampung",
-      "Gazebo",
-      "Area Camping",
-    ],
-    openingHours: "Setiap Hari, 07.00 – 18.00 WIB",
-    ticketPrice: "Rp 10.000/orang",
-    mapsUrl: "https://maps.google.com/?q=Pantai+Trikora+Bintan",
-    googlePlaceId: "ChIJexample456",
-    googleRating: 4.5,
-    googleReviewCount: 5100,
-    googleMapsUrl: "https://maps.google.com/?q=Pantai+Trikora+Bintan",
-    ratingAverage: 4.7,
-    reviewCount: 3240,
-    visitCount: 38900,
-    tips: [
-      "Datang saat pagi untuk menghindari keramaian dan terik matahari",
-      "Bawa sunscreen dan perlengkapan snorkeling sendiri",
-      "Jangan membuang sampah sembarangan untuk menjaga kebersihan pantai",
-      "Hati-hati dengan ombak jika membawa anak kecil",
-    ],
-    isPublished: true,
-  },
-];
+      data.googleMapsUrl ||
+      data.google_maps_url ||
+      data.mapsUrl ||
+      data.mapsLink ||
+      "",
 
-function getDummyBySlug(slug: string): Destination {
-  return DUMMY_DESTINATIONS.find((d) => d.slug === slug) || DUMMY_DESTINATIONS[0];
-}
+    ratingAverage: Number(data.ratingAverage || data.rating_average || 0),
+    reviewCount: Number(data.reviewCount || data.review_count || 0),
+    visitCount: Number(
+      data.visitCount ||
+        data.visit_count ||
+        data.views ||
+        data.kunjungan ||
+        data.jumlah_kunjungan ||
+        0
+    ),
+
+    tips: Array.isArray(data.tips)
+      ? data.tips
+      : tipsFromTravelTips.length > 0
+      ? tipsFromTravelTips
+      : [],
+
+    isPublished: Boolean(data.isPublished ?? data.is_published ?? true),
+  };
+};
 
 function GallerySlider({
   images,
@@ -251,14 +256,20 @@ function GallerySlider({
   mainImage: string;
   name: string;
 }) {
-  const allImages = [mainImage, ...images.filter((img) => img !== mainImage)].slice(
-    0,
-    8
-  );
+  const allImages = [mainImage, ...images.filter((img) => img !== mainImage)]
+    .filter(Boolean)
+    .filter((img, index, arr) => arr.indexOf(img) === index)
+    .slice(0, 8);
 
   const [current, setCurrent] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (current >= allImages.length) {
+      setCurrent(0);
+    }
+  }, [allImages.length, current]);
 
   const prev = () =>
     setCurrent((c) => (c === 0 ? allImages.length - 1 : c - 1));
@@ -275,12 +286,25 @@ function GallerySlider({
 
     const dx = e.changedTouches[0].clientX - touchStartX.current;
 
-    if (Math.abs(dx) > 50) {
+    if (Math.abs(dx) > 50 && allImages.length > 1) {
       dx < 0 ? next() : prev();
     }
 
     touchStartX.current = null;
   };
+
+  if (allImages.length === 0) {
+    return (
+      <div className="relative w-full h-[420px] md:h-[520px] bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center">
+        <div className="text-center text-white/70">
+          <MapPin className="w-16 h-16 mx-auto mb-4 opacity-60" />
+          <p className="font-semibold">Gambar destinasi belum tersedia</p>
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent z-10" />
+      </div>
+    );
+  }
 
   return (
     <div className="mb-0">
@@ -289,7 +313,6 @@ function GallerySlider({
         onClick={() => setLightboxOpen(true)}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        data-testid="gallery-main"
       >
         <AnimatePresence mode="wait">
           <motion.img
@@ -301,51 +324,52 @@ function GallerySlider({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.35 }}
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = allImages[0];
-            }}
           />
         </AnimatePresence>
 
         <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent z-10" />
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            prev();
-          }}
-          className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100"
-          data-testid="gallery-prev"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            next();
-          }}
-          className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100"
-          data-testid="gallery-next"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
-
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
-          {allImages.map((_, i) => (
+        {allImages.length > 1 && (
+          <>
             <button
-              key={i}
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setCurrent(i);
+                prev();
               }}
-              className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                i === current ? "bg-white w-5" : "bg-white/50"
-              }`}
-              data-testid={`gallery-dot-${i}`}
-            />
-          ))}
-        </div>
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                next();
+              }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
+              {allImages.map((_, i) => (
+                <button
+                  type="button"
+                  key={i}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrent(i);
+                  }}
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                    i === current ? "bg-white w-5" : "bg-white/50"
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="absolute top-4 right-4 z-20 px-3 py-1 bg-black/50 backdrop-blur-md text-white text-xs font-medium rounded-full">
           {current + 1} / {allImages.length}
@@ -356,29 +380,28 @@ function GallerySlider({
         </div>
       </div>
 
-      <div className="flex gap-2 p-3 bg-slate-900/5 border-b border-border overflow-x-auto scrollbar-hide">
-        {allImages.map((img, i) => (
-          <button
-            key={i}
-            onClick={() => setCurrent(i)}
-            className={`shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all duration-200 ${
-              i === current
-                ? "border-primary shadow-md"
-                : "border-transparent opacity-60 hover:opacity-100"
-            }`}
-            data-testid={`gallery-thumb-${i}`}
-          >
-            <img
-              src={img}
-              alt={`Thumbnail ${i + 1}`}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = allImages[0];
-              }}
-            />
-          </button>
-        ))}
-      </div>
+      {allImages.length > 1 && (
+        <div className="flex gap-2 p-3 bg-slate-900/5 border-b border-border overflow-x-auto scrollbar-hide">
+          {allImages.map((img, i) => (
+            <button
+              type="button"
+              key={i}
+              onClick={() => setCurrent(i)}
+              className={`shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all duration-200 ${
+                i === current
+                  ? "border-primary shadow-md"
+                  : "border-transparent opacity-60 hover:opacity-100"
+              }`}
+            >
+              <img
+                src={img}
+                alt={`Thumbnail ${i + 1}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence>
         {lightboxOpen && (
@@ -390,21 +413,25 @@ function GallerySlider({
             onClick={() => setLightboxOpen(false)}
           >
             <button
+              type="button"
               className="absolute top-4 right-4 text-white/70 hover:text-white z-10 p-2"
               onClick={() => setLightboxOpen(false)}
             >
               <ChevronRight className="w-6 h-6 rotate-45" />
             </button>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                prev();
-              }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
+            {allImages.length > 1 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prev();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+            )}
 
             <img
               src={allImages[current]}
@@ -413,15 +440,18 @@ function GallerySlider({
               onClick={(e) => e.stopPropagation()}
             />
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                next();
-              }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20"
-            >
-              <ChevronRight className="w-6 h-6" />
-            </button>
+            {allImages.length > 1 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  next();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            )}
 
             <p className="absolute bottom-6 text-white/60 text-sm">
               {current + 1} / {allImages.length}
@@ -444,7 +474,8 @@ function RatingStars({
   label: string;
   variant?: "web" | "google";
 }) {
-  const filled = Math.round(value);
+  const safeValue = Number(value || 0);
+  const filled = Math.round(safeValue);
 
   return (
     <div
@@ -454,16 +485,14 @@ function RatingStars({
           : "bg-white border-border"
       }`}
     >
-      {variant === "google" && (
+      {variant === "google" ? (
         <div className="flex items-center gap-1.5 mb-2">
           <Globe className="w-4 h-4 text-blue-500" />
           <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">
             Google
           </span>
         </div>
-      )}
-
-      {variant === "web" && (
+      ) : (
         <div className="flex items-center gap-1.5 mb-2">
           <Star className="w-4 h-4 text-amber-500" />
           <span className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
@@ -473,7 +502,7 @@ function RatingStars({
       )}
 
       <div className="text-4xl font-black text-foreground mb-1">
-        {value.toFixed(1)}
+        {safeValue.toFixed(1)}
       </div>
 
       <div className="flex mb-1">
@@ -492,7 +521,7 @@ function RatingStars({
       </div>
 
       <div className="text-xs text-muted-foreground font-medium">
-        {count.toLocaleString("id-ID")} {label}
+        {Number(count || 0).toLocaleString("id-ID")} {label}
       </div>
     </div>
   );
@@ -501,10 +530,21 @@ function RatingStars({
 export default function DetailDestinasi({
   params,
 }: {
-  params: { slug: string };
+  params?: { slug?: string };
 }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  const slugParam =
+    params?.slug ||
+    decodeURIComponent(
+      window.location.pathname.replace("/destination/", "").split("?")[0]
+    );
+
+  const [dest, setDest] = useState<Destination | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState("");
 
   const [isSaved, setIsSaved] = useState(false);
   const [rating, setRating] = useState(0);
@@ -512,38 +552,175 @@ export default function DetailDestinasi({
   const [comment, setComment] = useState("");
   const [showAllReviews, setShowAllReviews] = useState(false);
 
-  const dest = getDummyBySlug(params.slug);
   const authenticated = isLoggedIn();
 
-  const canReview =
-    authenticated &&
-    dummyVisited.some((visited) => visited.destinationId === dest.id);
+  const incrementVisit = useCallback(async (destination: Destination) => {
+    if (!destination.id && !destination.slug) return;
+
+    const visitId = destination.id || destination.slug;
+    const localUser = getLocalUser();
+
+    try {
+      const res = await fetch(`${API_URL}/destinations/${visitId}/visit`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        },
+        body: JSON.stringify({
+          userId: getUserId(),
+          userName:
+            localUser?.name ||
+            localUser?.nama ||
+            localUser?.email ||
+            "Pengunjung",
+          userEmail: localUser?.email || null,
+        }),
+      });
+
+      const text = await res.text();
+
+      let json: any = {};
+
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        console.error("Response visit bukan JSON:", text);
+        return;
+      }
+
+      if (!res.ok || !json.success) {
+        console.error("Gagal menambah kunjungan:", json.message);
+        return;
+      }
+
+      setDest((prev) => {
+        if (!prev || prev.id !== destination.id) return prev;
+
+        return {
+          ...prev,
+          visitCount:
+            typeof json.data?.visitCount === "number"
+              ? json.data.visitCount
+              : prev.visitCount + 1,
+        };
+      });
+    } catch (error) {
+      console.error("Gagal menambah kunjungan:", error);
+    }
+  }, []);
+
+  const fetchFavoriteStatus = useCallback(async (destinationId: number) => {
+    const userId = getUserId();
+
+    if (!userId || !destinationId) {
+      setIsSaved(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/favorites/check/${destinationId}?userId=${encodeURIComponent(
+          userId
+        )}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+          },
+        }
+      );
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setIsSaved(false);
+        return;
+      }
+
+      setIsSaved(Boolean(json.data?.isFavorite));
+    } catch (error) {
+      console.error("Gagal cek favorit:", error);
+      setIsSaved(false);
+    }
+  }, []);
+
+  const fetchReviews = useCallback(async (destinationId: number) => {
+    try {
+      const res = await fetch(`${API_URL}/reviews/destination/${destinationId}`);
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setReviews([]);
+        return;
+      }
+
+      setReviews(json.data || []);
+    } catch {
+      setReviews([]);
+    }
+  }, []);
+
+  const fetchDestination = useCallback(async () => {
+    try {
+      setLoading(true);
+      setErrorText("");
+
+      if (!slugParam || slugParam === "undefined") {
+        setDest(null);
+        setReviews([]);
+        setErrorText("Slug destinasi tidak ditemukan");
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/destinations/${slugParam}`);
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        setDest(null);
+        setReviews([]);
+        setErrorText(json.message || "Destinasi tidak ditemukan");
+        return;
+      }
+
+      const normalized = normalizeDestination(json.data);
+
+      setDest(normalized);
+
+      await Promise.all([
+        fetchReviews(normalized.id),
+        incrementVisit(normalized),
+        fetchFavoriteStatus(normalized.id),
+      ]);
+    } catch (error) {
+      console.error("Fetch destination error:", error);
+
+      setDest(null);
+      setReviews([]);
+      setErrorText(
+        "Tidak bisa terhubung ke server. Pastikan backend Express berjalan."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [slugParam, fetchReviews, incrementVisit, fetchFavoriteStatus]);
 
   useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem("favorit") || "[]");
-    setIsSaved(saved.some((d: any) => d.slug === params.slug));
+    fetchDestination();
+  }, [fetchDestination]);
 
-    const viewed = JSON.parse(localStorage.getItem("dilihat") || "[]");
+  useEffect(() => {
+    /*
+      Riwayat "Terakhir Dilihat" tidak disimpan ke localStorage lagi.
+      Data riwayat profil diambil dari database melalui:
+      GET /api/visits/user/:userId/recent
 
-    if (!viewed.some((d: any) => d.slug === dest.slug)) {
-      localStorage.setItem(
-        "dilihat",
-        JSON.stringify(
-          [
-            {
-              slug: dest.slug,
-              name: dest.name,
-              ratingAverage: dest.ratingAverage,
-              mainImage: dest.mainImage,
-            },
-            ...viewed,
-          ].slice(0, 10)
-        )
-      );
-    }
-  }, [dest.slug, params.slug]);
+      Log kunjungan sudah dikirim oleh incrementVisit().
+    */
+  }, [dest]);
 
-  const toggleSave = () => {
+  const toggleSave = async () => {
+    if (!dest) return;
+
     if (!authenticated) {
       toast({
         title: "Perlu Login",
@@ -555,37 +732,85 @@ export default function DetailDestinasi({
       return;
     }
 
-    const saved = JSON.parse(localStorage.getItem("favorit") || "[]");
+    const userId = getUserId();
 
-    if (isSaved) {
-      localStorage.setItem(
-        "favorit",
-        JSON.stringify(saved.filter((d: any) => d.slug !== params.slug))
-      );
+    if (!userId) {
+      toast({
+        title: "Data user tidak ditemukan",
+        description: "Silakan logout lalu login kembali.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      setIsSaved(false);
-      toast({ title: "Dihapus dari favorit" });
-    } else {
-      localStorage.setItem(
-        "favorit",
-        JSON.stringify([
-          {
-            slug: dest.slug,
-            name: dest.name,
-            ratingAverage: dest.ratingAverage,
-            mainImage: dest.mainImage,
+    try {
+      if (isSaved) {
+        const res = await fetch(`${API_URL}/favorites/${dest.id}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
           },
-          ...saved,
-        ])
-      );
+          body: JSON.stringify({
+            userId,
+          }),
+        });
 
-      setIsSaved(true);
-      toast({ title: "Disimpan ke favorit! ❤️" });
+        const json = await res.json();
+
+        if (!res.ok || !json.success) {
+          toast({
+            title: "Gagal menghapus favorit",
+            description: json.message || "Terjadi kesalahan.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setIsSaved(false);
+        toast({ title: "Dihapus dari favorit" });
+      } else {
+        const res = await fetch(`${API_URL}/favorites`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+          },
+          body: JSON.stringify({
+            userId,
+            destinationId: dest.id,
+          }),
+        });
+
+        const json = await res.json();
+
+        if (!res.ok || !json.success) {
+          toast({
+            title: "Gagal menyimpan favorit",
+            description: json.message || "Terjadi kesalahan.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setIsSaved(true);
+        toast({ title: "Disimpan ke favorit! ❤️" });
+      }
+    } catch (error) {
+      console.error("Gagal update favorit:", error);
+
+      toast({
+        title: "Gagal terhubung ke server",
+        description: "Pastikan backend Express berjalan.",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!dest) return;
 
     if (rating === 0) {
       toast({
@@ -603,16 +828,91 @@ export default function DetailDestinasi({
       return;
     }
 
-    toast({
-      title: "Ulasan terkirim! 🎉",
-      description: "Ulasan Anda sedang menunggu persetujuan moderator.",
-    });
+    const localUser = getLocalUser();
 
-    setRating(0);
-    setComment("");
+    try {
+      const res = await fetch(`${API_URL}/reviews`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+        },
+        body: JSON.stringify({
+          destinationId: dest.id,
+          userId: getUserId(),
+          userName:
+            localUser?.nama ||
+            localUser?.name ||
+            localUser?.email ||
+            "Pengguna",
+          rating,
+          comment: comment.trim(),
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        toast({
+          title: "Gagal mengirim ulasan",
+          description:
+            json.message || "Terjadi kesalahan saat menyimpan ulasan.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Ulasan terkirim! 🎉",
+        description: "Rating destinasi berhasil diperbarui.",
+      });
+
+      setRating(0);
+      setComment("");
+      await fetchDestination();
+    } catch {
+      toast({
+        title: "Gagal terhubung ke server",
+        description: "Pastikan backend Express berjalan.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const visibleReviews = dummyReviews.filter(
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-muted/10 flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-10 h-10 mx-auto mb-4 animate-spin text-primary" />
+          <p className="text-muted-foreground">Memuat detail destinasi...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dest || errorText) {
+    return (
+      <div className="min-h-screen bg-muted/10 flex items-center justify-center px-6">
+        <div className="bg-white border border-border rounded-2xl p-8 text-center max-w-md">
+          <MapPin className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+          <h1 className="text-xl font-bold text-foreground mb-2">
+            Destinasi tidak ditemukan
+          </h1>
+          <p className="text-muted-foreground text-sm mb-6">
+            {errorText || "Data destinasi tidak tersedia."}
+          </p>
+          <Link
+            href="/destination"
+            className="inline-flex items-center justify-center h-11 px-5 rounded-xl bg-primary text-white font-semibold text-sm"
+          >
+            Kembali ke Destinasi
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const visibleReviews = reviews.filter(
     (review) => review.status === "visible" && review.destinationId === dest.id
   );
 
@@ -620,29 +920,21 @@ export default function DetailDestinasi({
     ? visibleReviews
     : visibleReviews.slice(0, 3);
 
-  const ratingBreakdown = [
-    {
-      star: 5,
-      pct:
-        Math.round(
-          (visibleReviews.filter((review) => review.rating === 5).length /
-            Math.max(visibleReviews.length, 1)) *
-            100
-        ) || 72,
-    },
-    {
-      star: 4,
-      pct:
-        Math.round(
-          (visibleReviews.filter((review) => review.rating === 4).length /
-            Math.max(visibleReviews.length, 1)) *
-            100
-        ) || 20,
-    },
-    { star: 3, pct: 5 },
-    { star: 2, pct: 2 },
-    { star: 1, pct: 1 },
-  ];
+  const canReview = authenticated;
+
+  const totalReviews = Math.max(visibleReviews.length, 1);
+
+  const ratingBreakdown = [5, 4, 3, 2, 1].map((star) => ({
+    star,
+    pct:
+      visibleReviews.length === 0
+        ? 0
+        : Math.round(
+            (visibleReviews.filter((review) => review.rating === star).length /
+              totalReviews) *
+              100
+          ),
+  }));
 
   return (
     <div className="min-h-screen bg-muted/10">
@@ -657,7 +949,6 @@ export default function DetailDestinasi({
           <Link
             href="/destination"
             className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
-            data-testid="link-back-destination"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -665,19 +956,18 @@ export default function DetailDestinasi({
 
         <div className="absolute top-4 right-4 z-30">
           <button
+            type="button"
             onClick={toggleSave}
             className={`inline-flex items-center justify-center w-10 h-10 rounded-full backdrop-blur-md transition-all duration-300 ${
               isSaved
                 ? "bg-red-500/80 text-white hover:bg-red-600/80"
                 : "bg-black/40 text-white hover:bg-black/60"
             }`}
-            data-testid="button-toggle-save"
           >
             <Heart className={`w-5 h-5 ${isSaved ? "fill-current" : ""}`} />
           </button>
         </div>
 
-        {/* Destination title overlay at bottom of gallery */}
         <div className="absolute bottom-24 md:bottom-28 left-0 w-full z-20 px-4 sm:px-6 md:px-12 pointer-events-none">
           <div className="max-w-5xl mx-auto">
             <span className="inline-flex px-3 py-1 bg-primary text-white text-xs md:text-sm font-semibold rounded-full mb-3 shadow-md">
@@ -691,7 +981,9 @@ export default function DetailDestinasi({
             <div className="flex flex-wrap items-center gap-2 text-white text-xs md:text-sm">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-sm">
                 <Star className="w-3.5 h-3.5 md:w-4 md:h-4 fill-yellow-400 text-yellow-400 shrink-0" />
-                <span className="font-bold">{dest.ratingAverage}</span>
+                <span className="font-bold">
+                  {dest.ratingAverage.toFixed(1)}
+                </span>
                 <span className="text-white/80">
                   ({dest.reviewCount.toLocaleString("id-ID")} ulasan)
                 </span>
@@ -767,7 +1059,6 @@ export default function DetailDestinasi({
                   <span
                     key={index}
                     className="px-4 py-2 bg-white border border-border text-foreground rounded-lg text-sm font-medium hover:border-primary hover:text-primary transition-colors"
-                    data-testid={`badge-facility-${index}`}
                   >
                     {facility}
                   </span>
@@ -803,15 +1094,16 @@ export default function DetailDestinasi({
                   variant="google"
                 />
 
-                <a
-                  href={dest.googleMapsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="absolute bottom-4 right-4 flex items-center gap-1 text-xs text-blue-500 hover:underline"
-                  data-testid="link-google-maps-rating"
-                >
-                  <ExternalLink className="w-3 h-3" /> Lihat di Google
-                </a>
+                {dest.googleMapsUrl && (
+                  <a
+                    href={dest.googleMapsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="absolute bottom-4 right-4 flex items-center gap-1 text-xs text-blue-500 hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Lihat di Google
+                  </a>
+                )}
               </div>
             </div>
 
@@ -822,7 +1114,10 @@ export default function DetailDestinasi({
 
               <div className="space-y-2.5">
                 {ratingBreakdown.map((row) => (
-                  <div key={row.star} className="flex items-center gap-3 text-sm">
+                  <div
+                    key={row.star}
+                    className="flex items-center gap-3 text-sm"
+                  >
                     <span className="font-medium w-3 text-right">
                       {row.star}
                     </span>
@@ -876,7 +1171,6 @@ export default function DetailDestinasi({
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     className="bg-white p-5 rounded-2xl border border-border"
-                    data-testid={`card-review-${review.id}`}
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-3">
@@ -926,7 +1220,6 @@ export default function DetailDestinasi({
                     variant="outline"
                     className="w-full h-12"
                     onClick={() => setShowAllReviews(!showAllReviews)}
-                    data-testid="button-toggle-reviews"
                   >
                     {showAllReviews
                       ? "Tampilkan Lebih Sedikit"
@@ -961,10 +1254,7 @@ export default function DetailDestinasi({
                   pengalaman berkunjung.
                 </p>
 
-                <Button
-                  onClick={() => setLocation("/login")}
-                  data-testid="button-login-to-review"
-                >
+                <Button onClick={() => setLocation("/login")}>
                   Masuk Sekarang
                 </Button>
               </div>
@@ -979,9 +1269,8 @@ export default function DetailDestinasi({
                     Belum Ada Kunjungan Tercatat
                   </h3>
                   <p className="text-amber-700/80 text-sm leading-relaxed">
-                    Kamu dapat memberi ulasan setelah mengunjungi destinasi ini.
-                    Tandai kunjungan Anda melalui menu{" "}
-                    <strong>Riwayat Kunjungan</strong> di profil.
+                    Kamu dapat memberi ulasan setelah login dan mengunjungi
+                    destinasi ini.
                   </p>
                 </div>
               </div>
@@ -1004,7 +1293,6 @@ export default function DetailDestinasi({
                         onMouseEnter={() => setHoverRating(star)}
                         onMouseLeave={() => setHoverRating(0)}
                         className="focus:outline-none transition-transform hover:scale-110 active:scale-95"
-                        data-testid={`button-star-${star}`}
                       >
                         <Star
                           className={`w-9 h-9 transition-colors ${
@@ -1019,9 +1307,14 @@ export default function DetailDestinasi({
                     {rating > 0 && (
                       <span className="ml-2 text-sm text-muted-foreground self-center">
                         {
-                          ["", "Buruk", "Kurang", "Cukup", "Bagus", "Luar Biasa"][
-                            rating
-                          ]
+                          [
+                            "",
+                            "Buruk",
+                            "Kurang",
+                            "Cukup",
+                            "Bagus",
+                            "Luar Biasa",
+                          ][rating]
                         }
                       </span>
                     )}
@@ -1041,9 +1334,8 @@ export default function DetailDestinasi({
                     rows={4}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Ceritakan apa yang Anda suka dari tempat ini, tips bagi pengunjung lain, atau hal yang bisa ditingkatkan..."
+                    placeholder="Ceritakan apa yang Anda suka dari tempat ini..."
                     className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all resize-none text-sm"
-                    data-testid="textarea-review-comment"
                   />
 
                   <div className="flex justify-between text-xs text-muted-foreground mt-1">
@@ -1056,11 +1348,7 @@ export default function DetailDestinasi({
                   </div>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="h-12 px-8 font-semibold"
-                  data-testid="button-submit-review"
-                >
+                <Button type="submit" className="h-12 px-8 font-semibold">
                   Kirim Ulasan
                 </Button>
               </form>
@@ -1149,15 +1437,16 @@ export default function DetailDestinasi({
                 </div>
               </div>
 
-              <a
-                href={dest.googleMapsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-6 w-full h-12 flex items-center justify-center gap-2 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-md shadow-primary/20"
-                data-testid="link-open-google-maps"
-              >
-                <MapPin className="w-4 h-4" /> Buka di Google Maps
-              </a>
+              {dest.googleMapsUrl && (
+                <a
+                  href={dest.googleMapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-6 w-full h-12 flex items-center justify-center gap-2 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-md shadow-primary/20"
+                >
+                  <MapPin className="w-4 h-4" /> Buka di Google Maps
+                </a>
+              )}
             </div>
 
             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
@@ -1194,15 +1483,16 @@ export default function DetailDestinasi({
                 </div>
               </div>
 
-              <a
-                href={dest.googleMapsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 text-xs text-blue-500 hover:underline flex items-center gap-1"
-                data-testid="link-google-maps-sidebar"
-              >
-                <ExternalLink className="w-3 h-3" /> Lihat di Google Maps
-              </a>
+              {dest.googleMapsUrl && (
+                <a
+                  href={dest.googleMapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 text-xs text-blue-500 hover:underline flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3 h-3" /> Lihat di Google Maps
+                </a>
+              )}
             </div>
           </motion.div>
         </div>

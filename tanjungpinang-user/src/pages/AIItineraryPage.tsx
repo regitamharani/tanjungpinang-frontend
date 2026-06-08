@@ -1,39 +1,54 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Sparkles,
-  Plus,
-  Minus,
-  Clock,
-  MapPin,
-  Wallet,
-  Users,
-  Calendar,
-  Download,
-  Bookmark,
-  RotateCcw,
-  Trash2,
-  Eye,
   ArrowLeft,
+  Bookmark,
   Bus,
+  Calendar,
+  Clock,
+  Download,
+  Eye,
+  MapPin,
+  Minus,
+  Plus,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+  Users,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { isLoggedIn, getUser } from "@/services/api";
+import {
+  deleteItineraryFromDatabase,
+  generateItineraryFromDatabase,
+  getUser,
+  getUserItinerariesFromDatabase,
+  isLoggedIn,
+} from "@/services/api";
 import Footer from "@/components/layout/Footer";
 
 type BudgetType = "hemat" | "menengah" | "premium";
 type Period = "pagi" | "siang" | "sore" | "malam";
 type AppView = "planner" | "result";
 
+interface User {
+  id: number;
+  nama?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+}
+
 interface ItineraryItem {
+  id?: number;
   day: number;
   time: string;
   period: Period;
   destinationName: string;
-  destinationId?: number;
-  destinationSlug?: string;
+  destinationId?: number | null;
+  destinationSlug?: string | null;
   category: string;
   duration: string;
   estimatedCost: number;
@@ -43,7 +58,7 @@ interface ItineraryItem {
 }
 
 interface Itinerary {
-  id: string;
+  id: number | string;
   userId: number;
   title: string;
   days: number;
@@ -57,218 +72,6 @@ interface Itinerary {
   createdAt: string;
   items: ItineraryItem[];
 }
-
-interface AIDest {
-  id: number;
-  slug: string;
-  name: string;
-  interests: string[];
-  location: string;
-  baseCost: number;
-  duration: string;
-  bestPeriod: Period;
-  description: string;
-  tips: string;
-  mapsUrl: string;
-  aiRecommended: boolean;
-  isPublished: boolean;
-}
-
-const AI_DESTINATIONS: AIDest[] = [
-  {
-    id: 1,
-    slug: "masjid-raya-penyengat",
-    name: "Masjid Raya Sultan Riau Penyengat",
-    interests: ["Sejarah", "Budaya"],
-    location: "Pulau Penyengat",
-    baseCost: 8000,
-    duration: "2-3 jam",
-    bestPeriod: "pagi",
-    description:
-      "Masjid bersejarah abad 19 yang dibangun dengan campuran putih telur, ikon wisata Tanjung Pinang.",
-    tips: "Naik pompong dari dermaga bawah kota, Rp 8.000/orang.",
-    mapsUrl:
-      "https://maps.google.com/?q=Masjid+Raya+Sultan+Riau+Penyengat",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 2,
-    slug: "pantai-trikora",
-    name: "Pantai Trikora",
-    interests: ["Pantai", "Alam"],
-    location: "Bintan Timur",
-    baseCost: 25000,
-    duration: "3-4 jam",
-    bestPeriod: "pagi",
-    description:
-      "Pantai berpasir putih dengan air jernih dan pemandangan sunrise yang memukau.",
-    tips: "Bawa sunscreen, tikar pantai, dan snorkel gear sendiri.",
-    mapsUrl: "https://maps.google.com/?q=Pantai+Trikora+Bintan",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 3,
-    slug: "gurun-pasir-busung",
-    name: "Gurun Pasir Busung",
-    interests: ["Alam"],
-    location: "Bintan Timur",
-    baseCost: 15000,
-    duration: "2-3 jam",
-    bestPeriod: "pagi",
-    description:
-      "Hamparan pasir putih luas bak gurun Sahara di tengah kepulauan tropis.",
-    tips: "Datang pagi sebelum jam 10, terik sekali di siang hari.",
-    mapsUrl: "https://maps.google.com/?q=Gurun+Pasir+Busung+Bintan",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 4,
-    slug: "patung-seribu",
-    name: "Kawasan Patung Seribu",
-    interests: ["Budaya", "Sejarah"],
-    location: "Tanjung Pinang",
-    baseCost: 10000,
-    duration: "1-2 jam",
-    bestPeriod: "sore",
-    description:
-      "Kawasan unik penuh patung tradisional yang menceritakan sejarah dan legenda Melayu.",
-    tips: "Bawa kamera karena banyak spot foto instagramable.",
-    mapsUrl: "https://maps.google.com/?q=Patung+Seribu+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 5,
-    slug: "melayu-square",
-    name: "Melayu Square",
-    interests: ["Kuliner", "Budaya"],
-    location: "Tanjung Pinang",
-    baseCost: 40000,
-    duration: "1-2 jam",
-    bestPeriod: "malam",
-    description:
-      "Pusat kuliner dan belanja dengan nuansa budaya Melayu yang ramai di malam hari.",
-    tips: "Coba nasi dagang, laksam, dan kopi khas lokal.",
-    mapsUrl: "https://maps.google.com/?q=Melayu+Square+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 6,
-    slug: "vihara-avalokitesvara",
-    name: "Vihara Avalokitesvara Puri",
-    interests: ["Budaya", "Sejarah"],
-    location: "Tanjung Pinang",
-    baseCost: 0,
-    duration: "1-2 jam",
-    bestPeriod: "pagi",
-    description:
-      "Vihara besar dengan arsitektur Tiongkok yang megah dan suasana tenang.",
-    tips: "Gratis masuk, hormati aturan berpakaian dan ketenangan.",
-    mapsUrl:
-      "https://maps.google.com/?q=Vihara+Avalokitesvara+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 7,
-    slug: "pantai-batu-hitam",
-    name: "Pantai Batu Hitam",
-    interests: ["Pantai", "Alam"],
-    location: "Bintan Utara",
-    baseCost: 15000,
-    duration: "2-3 jam",
-    bestPeriod: "sore",
-    description:
-      "Pantai unik dengan batuan granit hitam besar dan sunset yang indah.",
-    tips: "Bagus untuk foto sunset sekitar jam 17:30-18:00.",
-    mapsUrl: "https://maps.google.com/?q=Pantai+Batu+Hitam+Bintan",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 8,
-    slug: "bukit-kucing",
-    name: "Bukit Kucing",
-    interests: ["Alam"],
-    location: "Tanjung Pinang",
-    baseCost: 5000,
-    duration: "1-2 jam",
-    bestPeriod: "sore",
-    description:
-      "Spot untuk menikmati panorama kota Tanjung Pinang dari ketinggian.",
-    tips: "Datang sore hari agar tidak terlalu panas.",
-    mapsUrl: "https://maps.google.com/?q=Bukit+Kucing+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 9,
-    slug: "warung-gonggong",
-    name: "Warung Gonggong Khas",
-    interests: ["Kuliner"],
-    location: "Tanjung Pinang Kota",
-    baseCost: 35000,
-    duration: "1 jam",
-    bestPeriod: "siang",
-    description:
-      "Makan siang dengan gonggong segar khas Tanjung Pinang.",
-    tips: "Minta saus kacang dan jeruk nipis untuk rasa terbaik.",
-    mapsUrl: "https://maps.google.com/?q=Warung+Gonggong+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 10,
-    slug: "seafood-malam",
-    name: "Restoran Seafood Pesisir",
-    interests: ["Kuliner"],
-    location: "Tepi Laut Tanjung Pinang",
-    baseCost: 80000,
-    duration: "1-2 jam",
-    bestPeriod: "malam",
-    description:
-      "Makan malam seafood segar di tepi laut dengan pemandangan lampu kota.",
-    tips: "Pesan kepiting saus tiram dan udang bakar.",
-    mapsUrl: "https://maps.google.com/?q=Seafood+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-  {
-    id: 11,
-    slug: "kedai-kopi-lokal",
-    name: "Kedai Kopi Lokal Pagi",
-    interests: ["Kuliner"],
-    location: "Kota Tanjung Pinang",
-    baseCost: 15000,
-    duration: "45 menit",
-    bestPeriod: "pagi",
-    description:
-      "Sarapan pagi dengan kopi lokal dan kue tradisional Tanjung Pinang.",
-    tips: "Coba kopi susu panas dan roti bakar kaya.",
-    mapsUrl: "https://maps.google.com/?q=Kedai+Kopi+Tanjung+Pinang",
-    aiRecommended: true,
-    isPublished: true,
-  },
-];
-
-const BUDGET_MULTIPLIER: Record<BudgetType, number> = {
-  hemat: 1,
-  menengah: 2,
-  premium: 3.5,
-};
-
-const TRANSPORT: Record<BudgetType, string> = {
-  hemat:
-    "Angkutan kota, ojek online, jalan kaki untuk area dekat, dan kapal pompong untuk Pulau Penyengat.",
-  menengah:
-    "Grab/Gojek, sewa motor harian Rp 80.000/hari, atau kapal pompong untuk Penyengat.",
-  premium:
-    "Sewa mobil pribadi, speedboat, dan tour guide lokal agar perjalanan lebih nyaman.",
-};
 
 const PERIOD_LABEL: Record<Period, string> = {
   pagi: "Pagi",
@@ -306,191 +109,22 @@ const BUDGET_OPTIONS: { key: BudgetType; label: string; desc: string }[] = [
 ];
 
 function formatRp(n: number) {
-  return `Rp ${n.toLocaleString("id-ID")}`;
+  return `Rp ${Number(n || 0).toLocaleString("id-ID")}`;
 }
 
-function generateItinerary(params: {
-  days: number;
-  people: number;
-  budgetType: BudgetType;
-  interests: string[];
-  notes: string;
-  userId: number;
-}): Itinerary {
-  const allInterests = params.interests.includes("Semua Kategori");
+function getLoggedUser(): User | null {
+  const user = getUser();
 
-  const filtered = AI_DESTINATIONS.filter(
-    (destination) =>
-      destination.isPublished &&
-      (allInterests ||
-        destination.interests.some((interest) =>
-          params.interests.includes(interest)
-        ))
-  );
+  if (!user || !user.id) return null;
 
-  const pool =
-    filtered.length >= 4
-      ? filtered
-      : [...filtered, ...AI_DESTINATIONS.filter((d) => d.isPublished)].slice(
-          0,
-          8
-        );
-
-  const multiplier = BUDGET_MULTIPLIER[params.budgetType];
-  const items: ItineraryItem[] = [];
-  const used = new Set<number>();
-
-  const pick = (pref: Period, fallback?: Period): AIDest => {
-    const available = pool.filter(
-      (d) =>
-        !used.has(d.id) &&
-        (d.bestPeriod === pref || d.bestPeriod === fallback)
-    );
-
-    const selected =
-      available[0] || pool.find((d) => !used.has(d.id)) || pool[0];
-
-    used.add(selected.id);
-    return selected;
-  };
-
-  for (let day = 1; day <= params.days; day++) {
-    used.clear();
-
-    const breakfast =
-      AI_DESTINATIONS.find(
-        (d) =>
-          d.bestPeriod === "pagi" &&
-          d.interests.includes("Kuliner") &&
-          !used.has(d.id)
-      ) || AI_DESTINATIONS[10];
-
-    used.add(breakfast.id);
-
-    const dailyDestinations = [
-      {
-        time: "07:30",
-        period: "pagi" as Period,
-        item: breakfast,
-        category: "Kuliner",
-      },
-      {
-        time: "09:00",
-        period: "pagi" as Period,
-        item: pick("pagi"),
-      },
-      {
-        time: "12:30",
-        period: "siang" as Period,
-        item:
-          AI_DESTINATIONS.find(
-            (d) => d.bestPeriod === "siang" && !used.has(d.id)
-          ) || AI_DESTINATIONS[8],
-        category: "Kuliner",
-      },
-      {
-        time: "15:00",
-        period: "sore" as Period,
-        item: pick("sore", "pagi"),
-      },
-      {
-        time: "19:00",
-        period: "malam" as Period,
-        item:
-          AI_DESTINATIONS.find(
-            (d) => d.bestPeriod === "malam" && !used.has(d.id)
-          ) || AI_DESTINATIONS[9],
-        category: "Kuliner",
-      },
-    ];
-
-    dailyDestinations.forEach((activity) => {
-      const destination = activity.item;
-      used.add(destination.id);
-
-      items.push({
-        day,
-        time: activity.time,
-        period: activity.period,
-        destinationName: destination.name,
-        destinationId: destination.id,
-        destinationSlug: destination.slug,
-        category: activity.category || destination.interests[0],
-        duration: destination.duration,
-        estimatedCost: Math.round(
-          destination.baseCost * multiplier * params.people
-        ),
-        description: destination.description,
-        tips: destination.tips,
-        mapsUrl: destination.mapsUrl,
-      });
-    });
-  }
-
-  const activityCost = items.reduce(
-    (sum, item) => sum + item.estimatedCost,
-    0
-  );
-
-  const hotel =
-    params.budgetType === "hemat"
-      ? 150000
-      : params.budgetType === "menengah"
-      ? 400000
-      : 900000;
-
-  const hotelTotal = hotel * params.people * params.days;
-  const totalCost = activityCost + hotelTotal;
-
-  return {
-    id: `itn-${Date.now()}`,
-    userId: params.userId,
-    title: `Itinerary Tanjung Pinang ${params.days} Hari`,
-    days: params.days,
-    people: params.people,
-    budgetType: params.budgetType,
-    interests: params.interests,
-    notes: params.notes,
-    estimatedCostMin: totalCost,
-    estimatedCostMax: Math.round(totalCost * 1.2),
-    transportRecommendation: TRANSPORT[params.budgetType],
-    createdAt: new Date().toISOString(),
-    items,
-  };
-}
-
-function saveItinerary(itinerary: Itinerary) {
-  const stored: Itinerary[] = JSON.parse(
-    localStorage.getItem("ai_itineraries") || "[]"
-  );
-
-  const exists = stored.findIndex((item) => item.id === itinerary.id);
-
-  if (exists >= 0) {
-    stored[exists] = itinerary;
-  } else {
-    stored.unshift(itinerary);
-  }
-
-  localStorage.setItem("ai_itineraries", JSON.stringify(stored.slice(0, 20)));
-}
-
-function loadItineraries(): Itinerary[] {
-  return JSON.parse(localStorage.getItem("ai_itineraries") || "[]");
-}
-
-function deleteItinerary(id: string) {
-  const stored = loadItineraries().filter((item) => item.id !== id);
-  localStorage.setItem("ai_itineraries", JSON.stringify(stored));
+  return user;
 }
 
 function ItineraryResult({
   itinerary,
-  onSave,
   onNew,
 }: {
   itinerary: Itinerary;
-  onSave: () => void;
   onNew: () => void;
 }) {
   const { toast } = useToast();
@@ -503,6 +137,13 @@ function ItineraryResult({
     });
 
     setTimeout(() => window.print(), 400);
+  };
+
+  const handleSavedInfo = () => {
+    toast({
+      title: "Itinerary sudah tersimpan ✅",
+      description: "Data itinerary sudah masuk ke database.",
+    });
   };
 
   const days = Array.from({ length: itinerary.days }, (_, index) => index + 1);
@@ -559,11 +200,11 @@ function ItineraryResult({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={onSave}
+                onClick={handleSavedInfo}
                 className="h-10 rounded-xl gap-2"
               >
                 <Bookmark className="w-4 h-4" />
-                Simpan
+                Tersimpan
               </Button>
 
               <Button
@@ -713,7 +354,7 @@ function ItineraryResult({
             <div className="divide-y divide-border print:divide-gray-200">
               {dayItems.map((item, index) => (
                 <div
-                  key={index}
+                  key={`${day}-${item.time}-${index}`}
                   className="px-6 py-4 flex gap-4 print:px-4 print:py-3 print:gap-3 print:break-inside-avoid"
                 >
                   <div className="flex flex-col items-center shrink-0 w-14 print:w-12">
@@ -722,7 +363,9 @@ function ItineraryResult({
                     </span>
 
                     <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full border mt-1 font-medium print:text-[10px] print:px-1.5 print:py-0.5 ${PERIOD_COLOR[item.period]}`}
+                      className={`text-xs px-1.5 py-0.5 rounded-full border mt-1 font-medium print:text-[10px] print:px-1.5 print:py-0.5 ${
+                        PERIOD_COLOR[item.period]
+                      }`}
                     >
                       {PERIOD_LABEL[item.period]}
                     </span>
@@ -800,9 +443,9 @@ function ItineraryResult({
       })}
 
       <div className="flex flex-wrap justify-center gap-4 pt-2 print:hidden">
-        <Button onClick={onSave} className="gap-2 h-12 px-6">
+        <Button onClick={handleSavedInfo} className="gap-2 h-12 px-6">
           <Bookmark className="w-4 h-4" />
-          Simpan Itinerary
+          Sudah Tersimpan
         </Button>
 
         <Button
@@ -828,7 +471,6 @@ function PlannerForm({
 }: {
   onGenerate: (itinerary: Itinerary) => void;
 }) {
-  const user = getUser();
   const { toast } = useToast();
 
   const [days, setDays] = useState(2);
@@ -856,28 +498,48 @@ function PlannerForm({
     });
   };
 
-  const handleSubmit = () => {
-    setLoading(true);
+  const handleSubmit = async () => {
+    const user = getLoggedUser();
 
-    setTimeout(() => {
-      const itinerary = generateItinerary({
+    if (!user?.id) {
+      toast({
+        title: "User tidak ditemukan",
+        description: "Silakan login ulang agar itinerary bisa disimpan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const itinerary = await generateItineraryFromDatabase({
+        userId: user.id,
         days,
         people,
         budgetType: budget,
         interests,
         notes,
-        userId: user?.id || 1,
       });
-
-      setLoading(false);
 
       toast({
         title: "Itinerary berhasil dibuat! 🎉",
-        description: `${days} hari untuk ${people} orang telah disiapkan.`,
+        description: `${days} hari untuk ${people} orang berhasil disimpan ke database.`,
       });
 
       onGenerate(itinerary);
-    }, 1200);
+    } catch (error) {
+      toast({
+        title: "Gagal membuat itinerary",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Terjadi kesalahan saat membuat itinerary.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1044,16 +706,91 @@ function ItineraryHistory({
   onView: (itinerary: Itinerary) => void;
 }) {
   const { toast } = useToast();
-  const [list, setList] = useState<Itinerary[]>(loadItineraries);
 
-  const handleDelete = (id: string) => {
-    deleteItinerary(id);
-    setList(loadItineraries());
+  const [list, setList] = useState<Itinerary[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    toast({
-      title: "Itinerary dihapus.",
-    });
+  const fetchHistory = async () => {
+    const user = getLoggedUser();
+
+    if (!user?.id) {
+      toast({
+        title: "User tidak ditemukan",
+        description: "Silakan login ulang.",
+        variant: "destructive",
+      });
+
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const data = await getUserItinerariesFromDatabase(user.id);
+      setList(data);
+    } catch (error) {
+      toast({
+        title: "Gagal mengambil riwayat",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Terjadi kesalahan saat mengambil riwayat.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const handleDelete = async (id: number | string) => {
+    const user = getLoggedUser();
+
+    if (!user?.id) {
+      toast({
+        title: "User tidak ditemukan",
+        description: "Silakan login ulang.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await deleteItineraryFromDatabase(id, user.id);
+
+      setList((prev) => prev.filter((item) => item.id !== id));
+
+      toast({
+        title: "Itinerary dihapus.",
+        description: "Data itinerary berhasil dihapus dari database.",
+      });
+    } catch (error) {
+      toast({
+        title: "Gagal menghapus itinerary",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Terjadi kesalahan saat menghapus itinerary.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white rounded-2xl border border-border p-10 text-center shadow-sm">
+          <p className="text-sm text-muted-foreground">
+            Memuat riwayat itinerary...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (list.length === 0) {
     return (
@@ -1180,6 +917,23 @@ export default function AIItineraryPage() {
       });
 
       setLocation("/login");
+      return;
+    }
+
+    const user = getLoggedUser();
+
+    if (!user?.id) {
+      toast({
+        title: "Data user tidak valid",
+        description: "Silakan login ulang.",
+        variant: "destructive",
+      });
+
+      localStorage.removeItem("token");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("user");
+
+      setLocation("/login");
     }
   }, [authenticated, setLocation, toast]);
 
@@ -1188,17 +942,6 @@ export default function AIItineraryPage() {
   const handleGenerate = (itinerary: Itinerary) => {
     setCurrentItinerary(itinerary);
     setView("result");
-  };
-
-  const handleSave = () => {
-    if (!currentItinerary) return;
-
-    saveItinerary(currentItinerary);
-
-    toast({
-      title: "Itinerary tersimpan! ✅",
-      description: "Kamu bisa menemukannya di tab Riwayat.",
-    });
   };
 
   const handleNewItinerary = () => {
@@ -1279,7 +1022,6 @@ export default function AIItineraryPage() {
             >
               <ItineraryResult
                 itinerary={currentItinerary}
-                onSave={handleSave}
                 onNew={handleNewItinerary}
               />
             </motion.div>

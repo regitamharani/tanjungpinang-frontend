@@ -1,11 +1,28 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, Star, MapPin, Eye, Plane, Home, Utensils, Ship, Anchor, Quote, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ArrowRight,
+  Star,
+  MapPin,
+  Eye,
+  Quote,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Footer from "@/components/layout/Footer";
-import { getTopReviews, getAverageRating, type Review } from "@/data/reviews";
-import { isLoggedIn } from "@/services/api";
+
+/* ── API ─────────────────────────────────────────────────────────────────── */
+
+const API_URL = "http://localhost:3000/api";
+const RECO_URL = "https://sirojulf-recommendation-system.hf.space";
+
+const FALLBACK_HERO_IMAGE =
+  "https://images.unsplash.com/photo-1518509562904-e7ef99cdcc86?q=80&w=2574&auto=format&fit=crop";
+
+const FALLBACK_CARD_IMAGE =
+  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200&auto=format&fit=crop";
 
 /* ── Data Structures ──────────────────────────────────────────────────────── */
 
@@ -43,64 +60,269 @@ interface HomepageHighlight {
   isActive: boolean;
 }
 
-/* ── Dummy Data ───────────────────────────────────────────────────────────── */
+interface Review {
+  id: number;
+  userName: string;
+  userAvatar: string;
+  destinationName: string;
+  destinationSlug: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+  isVerifiedVisit: boolean;
+}
 
-const dummyDestinations: Destination[] = [
-  { id: 1, slug: "masjid-raya-penyengat", name: "Masjid Raya Sultan Riau Penyengat", category: "Wisata Religi", location: "Pulau Penyengat", description: "Masjid bersejarah yang konon dibangun dengan campuran putih telur.", image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?q=80&w=800", ratingAverage: 4.9, reviewCount: 2087, visitCount: 45200, isPublished: true },
-  { id: 2, slug: "pantai-trikora", name: "Pantai Trikora", category: "Wisata Pantai", location: "Bintan Timur", description: "Pantai berpasir putih dengan air jernih dan pemandangan indah.", image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800", ratingAverage: 4.7, reviewCount: 3240, visitCount: 38900, isPublished: true },
-  { id: 3, slug: "gurun-pasir-busung", name: "Gurun Pasir Busung", category: "Wisata Alam", location: "Bintan Timur", description: "Hamparan pasir putih luas seperti gurun sahara di tengah pulau.", image: "https://images.unsplash.com/photo-1509316785289-025f5b846b35?q=80&w=800", ratingAverage: 4.6, reviewCount: 1897, visitCount: 28750, isPublished: true },
-  { id: 4, slug: "patung-seribu", name: "Patung Seribu", category: "Wisata Budaya", location: "Tanjung Pinang", description: "Kawasan penuh patung tradisional yang menceritakan budaya Melayu.", image: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?q=80&w=800", ratingAverage: 4.5, reviewCount: 1456, visitCount: 22300, isPublished: true },
-  { id: 5, slug: "melayu-square", name: "Melayu Square", category: "Wisata Kuliner", location: "Tanjung Pinang", description: "Pusat kuliner dan belanja dengan nuansa budaya Melayu yang kental.", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=800", ratingAverage: 4.4, reviewCount: 893, visitCount: 19800, isPublished: true },
-  { id: 6, slug: "vihara-avalokitesvara", name: "Vihara Avalokitesvara", category: "Wisata Religi", location: "Tanjung Pinang", description: "Vihara tertua dan terbesar di Tanjung Pinang dengan arsitektur Tiongkok.", image: "https://images.unsplash.com/photo-1516026672322-bc52d61a55d5?q=80&w=800", ratingAverage: 4.8, reviewCount: 1780, visitCount: 31500, isPublished: true },
-  { id: 7, slug: "pantai-batu-hitam", name: "Pantai Batu Hitam", category: "Wisata Pantai", location: "Bintan Utara", description: "Pantai unik dengan batuan granit hitam besar yang menjadi daya tarik utama.", image: "https://images.unsplash.com/photo-1519046904884-53103b34b206?q=80&w=800", ratingAverage: 4.3, reviewCount: 654, visitCount: 16200, isPublished: true },
-  { id: 8, slug: "bukit-kucing", name: "Bukit Kucing", category: "Wisata Alam", location: "Tanjung Pinang", description: "Spot terbaik untuk menikmati panorama kota Tanjung Pinang dari ketinggian.", image: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=800", ratingAverage: 4.4, reviewCount: 892, visitCount: 17400, isPublished: true },
-];
+/* ── Helpers ──────────────────────────────────────────────────────────────── */
 
-const dummyCategories: Category[] = [
-  { id: "Wisata Alam", name: "Wisata Alam", image: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=600", emoji: "🌿", count: 12, isActive: true },
-  { id: "Wisata Pantai", name: "Wisata Pantai", image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=600", emoji: "🏖️", count: 8, isActive: true },
-  { id: "Wisata Sejarah", name: "Wisata Sejarah", image: "https://images.unsplash.com/photo-1552832230-c0197dd311b5?q=80&w=600", emoji: "🏛️", count: 10, isActive: true },
-  { id: "Wisata Kuliner", name: "Wisata Kuliner", image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=600", emoji: "🍽️", count: 15, isActive: true },
-  { id: "Wisata Budaya", name: "Wisata Budaya", image: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?q=80&w=600", emoji: "🎭", count: 6, isActive: true },
-];
+const isActiveValue = (value: unknown) => {
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    value === "true" ||
+    value === "published" ||
+    value === "aktif" ||
+    value === "active"
+  );
+};
 
-const dummyHighlights: HomepageHighlight[] = [
-  {
-    id: 1,
-    title: "Jelajahi Sejarah Budaya Melayu",
-    subtitle: "Temukan peninggalan bersejarah dan rasakan kentalnya budaya Melayu di setiap sudut kota Tanjung Pinang. Dari masjid yang dibangun dengan putih telur hingga istana kerajaan yang megah.",
-    image: "https://images.unsplash.com/photo-1544644181-1484b3fdfc62?q=80&w=2000&auto=format&fit=crop",
-    buttonText: "Baca Selengkapnya",
-    buttonLink: "/destination/masjid-raya-penyengat",
-    badge: "Pilihan Editor",
-    isActive: true,
-  },
-  {
-    id: 2,
-    title: "Surga Tersembunyi: Gurun Pasir Busung",
-    subtitle: "Rasakan sensasi berjalan di hamparan pasir putih yang luas bak gurun Sahara di tengah kepulauan Riau yang tropis. Pengalaman yang tak terlupakan menanti Anda.",
-    image: "https://images.unsplash.com/photo-1509316785289-025f5b846b35?q=80&w=2000",
-    buttonText: "Lihat Destinasi",
-    buttonLink: "/destination/gurun-pasir-busung",
-    badge: "Rekomendasi",
-    isActive: false,
-  },
-];
+const toNumber = (value: unknown, fallback = 0) => {
+  const numberValue = Number(value);
+  return Number.isNaN(numberValue) ? fallback : numberValue;
+};
 
-/* ── Computed Data ────────────────────────────────────────────────────────── */
+const createSlug = (value: string) => {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+};
 
-const publishedDestinations = dummyDestinations.filter(d => d.isPublished);
+const normalizeCategoryText = (value: string) => {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/^wisata\s+/i, "")
+    .replace(/\s+/g, " ");
+};
 
-const destinasiUnggulan = [...publishedDestinations]
-  .sort((a, b) => b.ratingAverage - a.ratingAverage || b.reviewCount - a.reviewCount || b.visitCount - a.visitCount)
-  .slice(0, 4);
+const normalizePlaceName = (value: string) => {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ");
+};
 
-const destinasiPopuler = [...publishedDestinations]
-  .sort((a, b) => b.visitCount - a.visitCount)
-  .slice(0, 4);
+const getMatchedDestinationCategory = (
+  categoryName: string,
+  destinations: Destination[]
+) => {
+  const normalizedCategory = normalizeCategoryText(categoryName);
 
-const activeCategories = dummyCategories.filter(c => c.isActive);
-const activeHighlight = dummyHighlights.find(h => h.isActive);
+  const matchedDestination = destinations.find(
+    (destination) =>
+      normalizeCategoryText(destination.category) === normalizedCategory
+  );
+
+  return matchedDestination?.category || categoryName;
+};
+
+const formatCompactNumber = (value: number) => {
+  if (value >= 1000000) {
+    return `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}M+`;
+  }
+
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K+`;
+  }
+
+  return `${value}+`;
+};
+
+const getInitial = (name: string) => {
+  return String(name || "U").charAt(0).toUpperCase();
+};
+
+/* ── Normalizer ───────────────────────────────────────────────────────────── */
+
+const normalizeDestination = (item: any, index: number): Destination => {
+  const name = item.name || item.nama || item.title || "Destinasi";
+  const slug = item.slug || item.id || createSlug(name);
+
+  const ratingAverage = toNumber(
+    item.ratingAverage ??
+      item.rating_average ??
+      item.rata_rating ??
+      item.rating ??
+      item.averageRating,
+    0
+  );
+
+  const reviewCount = toNumber(
+    item.reviewCount ??
+      item.review_count ??
+      item.jumlah_ulasan ??
+      item.reviews_count ??
+      item.totalReviews,
+    0
+  );
+
+  const visitCount = toNumber(
+    item.visitCount ??
+      item.visit_count ??
+      item.views ??
+      item.view_count ??
+      item.visits ??
+      item.total_visits ??
+      item.kunjungan ??
+      item.jumlah_kunjungan,
+    0
+  );
+
+  return {
+    id: toNumber(item.id, index + 1),
+    slug: String(slug),
+    name: String(name),
+    category: item.category || item.kategori || "Wisata",
+    location: item.location || item.lokasi || "Tanjung Pinang",
+    description: item.description || item.deskripsi || "",
+    image:
+      item.image ||
+      item.gambar ||
+      item.img ||
+      item.mainImage ||
+      item.main_image ||
+      FALLBACK_CARD_IMAGE,
+    ratingAverage,
+    reviewCount,
+    visitCount,
+    isPublished: isActiveValue(
+      item.isPublished ??
+        item.is_published ??
+        item.published ??
+        item.status ??
+        true
+    ),
+  };
+};
+
+const normalizeAiFeaturedDestination = (
+  item: any,
+  index: number,
+  databaseDestinations: Destination[]
+): Destination => {
+  const placeName =
+    item.place_name ||
+    item.recommended_place ||
+    item.name ||
+    item.title ||
+    "Destinasi";
+
+  const matched = databaseDestinations.find(
+    (destination) =>
+      normalizePlaceName(destination.name) === normalizePlaceName(placeName)
+  );
+
+  if (matched) {
+    return {
+      ...matched,
+      ratingAverage: toNumber(
+        item.weighted_rating ?? item.rating ?? matched.ratingAverage,
+        matched.ratingAverage
+      ),
+    };
+  }
+
+  return {
+    id: index + 10000,
+    slug: createSlug(placeName),
+    name: String(placeName),
+    category: item.category || "Wisata",
+    location:
+      item.locationarea ||
+      item.location_area ||
+      item.locationcluster ||
+      item.location ||
+      "Tanjung Pinang",
+    description: "",
+    image: FALLBACK_CARD_IMAGE,
+    ratingAverage: toNumber(item.weighted_rating ?? item.rating, 0),
+    reviewCount: toNumber(item.review_count ?? item.reviews_count, 0),
+    visitCount: 0,
+    isPublished: true,
+  };
+};
+
+const normalizeCategory = (item: any): Category => {
+  return {
+    id: String(item.id ?? item.name ?? ""),
+    name: item.name || item.NAME || "Kategori",
+    image: item.image || FALLBACK_CARD_IMAGE,
+    emoji: item.emoji || "🧭",
+    count: toNumber(
+      item.count ?? item.destinationCount ?? item.destination_count,
+      0
+    ),
+    isActive: isActiveValue(item.isActive ?? item.is_active ?? true),
+  };
+};
+
+const normalizeHighlight = (item: any): HomepageHighlight => {
+  return {
+    id: toNumber(item.id, 0),
+    title: item.title || "",
+    subtitle: item.subtitle || "",
+    image: item.image || FALLBACK_CARD_IMAGE,
+    buttonText: item.buttonText || item.button_text || "Jelajahi Sekarang",
+    buttonLink: item.buttonLink || item.button_link || "/destination",
+    badge: item.badge || "Pilihan Editor",
+    isActive: isActiveValue(item.isActive ?? item.is_active ?? true),
+  };
+};
+
+const normalizeReview = (item: any, index: number): Review => {
+  const userName =
+    item.userName ||
+    item.user_name ||
+    item.nama ||
+    item.email ||
+    item.username ||
+    "Pengunjung";
+
+  const destinationName =
+    item.destinationName ||
+    item.destination_name ||
+    item.nama_destinasi ||
+    item.destination ||
+    item.name ||
+    "Destinasi";
+
+  return {
+    id: toNumber(item.id, index + 1),
+    userName,
+    userAvatar:
+      item.userAvatar ||
+      item.user_avatar ||
+      item.avatar ||
+      item.avatar_url ||
+      getInitial(userName),
+    destinationName,
+    destinationSlug:
+      item.destinationSlug ||
+      item.destination_slug ||
+      item.slug ||
+      createSlug(destinationName),
+    rating: toNumber(item.rating || item.nilai || item.stars, 0),
+    comment: item.comment || item.komentar || item.review || "",
+    createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    isVerifiedVisit: isActiveValue(
+      item.isVerifiedVisit ?? item.is_verified_visit ?? item.verified ?? true
+    ),
+  };
+};
 
 /* ── Review helpers ───────────────────────────────────────────────────────── */
 
@@ -119,19 +341,38 @@ function avatarColor(idx: number) {
   return AVATAR_COLORS[idx % AVATAR_COLORS.length];
 }
 
-function StarRow({ rating, size = "sm" }: { rating: number; size?: "sm" | "xs" }) {
+function StarRow({
+  rating,
+  size = "sm",
+}: {
+  rating: number;
+  size?: "sm" | "xs";
+}) {
   const sz = size === "xs" ? "w-3 h-3" : "w-4 h-4";
+
   return (
     <div className="flex items-center gap-0.5">
       {Array.from({ length: 5 }).map((_, i) => (
-        <Star key={i} className={`${sz} ${i < Math.round(rating) ? "fill-amber-400 text-amber-400" : "fill-muted text-muted"}`} />
+        <Star
+          key={i}
+          className={`${sz} ${
+            i < Math.round(rating)
+              ? "fill-amber-400 text-amber-400"
+              : "fill-muted text-muted"
+          }`}
+        />
       ))}
     </div>
   );
 }
 
 function ReviewCard({ review, index }: { review: Review; index: number }) {
-  const date = new Date(review.createdAt).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  const date = new Date(review.createdAt).toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -143,11 +384,18 @@ function ReviewCard({ review, index }: { review: Review; index: number }) {
       <Quote className="absolute top-5 right-5 w-8 h-8 text-primary/8" />
 
       <div className="flex items-center gap-3 mb-4">
-        <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${avatarColor(index)}`}>
+        <div
+          className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${avatarColor(
+            index
+          )}`}
+        >
           {review.userAvatar}
         </div>
+
         <div className="min-w-0">
-          <p className="font-bold text-foreground text-sm leading-tight">{review.userName}</p>
+          <p className="font-bold text-foreground text-sm leading-tight">
+            {review.userName}
+          </p>
           <p className="text-xs text-muted-foreground truncate">{date}</p>
         </div>
       </div>
@@ -171,26 +419,54 @@ function ReviewCard({ review, index }: { review: Review; index: number }) {
 
 /* ── Testimoni Section ────────────────────────────────────────────────────── */
 
-function TestimoniSection() {
-  const reviews = getTopReviews(6);
-  const avg = getAverageRating(reviews);
-  const totalApproved = reviews.length;
+function TestimoniSection({ reviews }: { reviews: Review[] }) {
+  const visibleReviews = reviews
+    .filter((review) => review.rating >= 4 && review.comment)
+    .sort(
+      (a, b) =>
+        b.rating - a.rating ||
+        new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+    )
+    .slice(0, 6);
+
+  const avg =
+    visibleReviews.length > 0
+      ? visibleReviews.reduce((sum, review) => sum + review.rating, 0) /
+        visibleReviews.length
+      : 0;
+
+  const totalApproved = visibleReviews.length;
   const [page, setPage] = useState(0);
 
   const COLS = 3;
-  const totalPages = Math.ceil(reviews.length / COLS);
-  const visible = reviews.slice(page * COLS, page * COLS + COLS);
+  const totalPages = Math.ceil(visibleReviews.length / COLS);
+  const visible = visibleReviews.slice(page * COLS, page * COLS + COLS);
 
-  const ratingLabel = avg >= 4.8 ? "Excellent" : avg >= 4.5 ? "Very Good" : avg >= 4 ? "Good" : "Fair";
+  const ratingLabel =
+    avg >= 4.8
+      ? "Excellent"
+      : avg >= 4.5
+      ? "Very Good"
+      : avg >= 4
+      ? "Good"
+      : "Fair";
 
-  if (reviews.length === 0) {
+  if (visibleReviews.length === 0) {
     return (
       <section className="py-20 bg-muted/20">
         <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">Ulasan</p>
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Apa Kata Pengunjung?</h2>
+          <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">
+            Ulasan
+          </p>
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            Apa Kata Pengunjung?
+          </h2>
+
           <div className="mt-10 py-16 bg-white rounded-2xl border border-border">
-            <p className="text-muted-foreground">Belum ada ulasan pengunjung.</p>
+            <p className="text-muted-foreground">
+              Belum ada ulasan pengunjung.
+            </p>
           </div>
         </div>
       </section>
@@ -200,17 +476,19 @@ function TestimoniSection() {
   return (
     <section className="py-24 bg-gradient-to-b from-white to-muted/30 overflow-hidden">
       <div className="max-w-7xl mx-auto px-6">
-
-        {/* Header */}
         <div className="text-center mb-14">
-          <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">Ulasan Pengunjung</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">Apa Kata Pengunjung?</h2>
+          <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">
+            Ulasan Pengunjung
+          </p>
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+            Apa Kata Pengunjung?
+          </h2>
           <p className="text-muted-foreground max-w-xl mx-auto text-base">
-            Ulasan asli dari wisatawan yang sudah mengunjungi destinasi di Tanjung Pinang.
+            Ulasan asli dari wisatawan yang sudah mengunjungi destinasi di
+            Tanjung Pinang.
           </p>
         </div>
 
-        {/* Rating Summary Bar */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -219,44 +497,59 @@ function TestimoniSection() {
           className="mb-12 flex flex-col sm:flex-row items-center justify-center gap-6 bg-white border border-border rounded-2xl shadow-sm px-8 py-6 max-w-lg mx-auto"
         >
           <div className="flex flex-col items-center sm:items-start sm:border-r sm:border-border sm:pr-6">
-            <span className="text-4xl font-black text-foreground">{avg.toFixed(1)}</span>
+            <span className="text-4xl font-black text-foreground">
+              {avg.toFixed(1)}
+            </span>
             <StarRow rating={avg} />
-            <span className="text-xs text-muted-foreground mt-1 font-medium">{totalApproved} Ulasan</span>
+            <span className="text-xs text-muted-foreground mt-1 font-medium">
+              {totalApproved} Ulasan
+            </span>
           </div>
+
           <div className="text-center sm:text-left">
-            <span className="text-2xl font-extrabold text-primary">{ratingLabel}</span>
+            <span className="text-2xl font-extrabold text-primary">
+              {ratingLabel}
+            </span>
             <p className="text-xs text-muted-foreground mt-1 leading-tight">
-              Sumber: Pengunjung<br className="hidden sm:block" /> Tanjung Pinang Guide
+              Sumber: Pengunjung
+              <br className="hidden sm:block" /> Tanjung Pinang Guide
             </p>
           </div>
         </motion.div>
 
-        {/* Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {(totalPages <= 1 ? reviews : visible).map((review, i) => (
+          {(totalPages <= 1 ? visibleReviews : visible).map((review, i) => (
             <ReviewCard key={review.id} review={review} index={i} />
           ))}
         </div>
 
-        {/* Pagination dots (only if more than 3 reviews on desktop) */}
         {totalPages > 1 && (
           <div className="mt-8 hidden lg:flex items-center justify-center gap-3">
             <button
-              onClick={() => setPage(p => Math.max(0, p - 1))}
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
               className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:border-primary hover:text-primary disabled:opacity-30 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
+
             {Array.from({ length: totalPages }).map((_, i) => (
               <button
+                type="button"
                 key={i}
                 onClick={() => setPage(i)}
-                className={`w-2 h-2 rounded-full transition-all ${i === page ? "bg-primary w-4" : "bg-border hover:bg-primary/40"}`}
+                className={`w-2 h-2 rounded-full transition-all ${
+                  i === page
+                    ? "bg-primary w-4"
+                    : "bg-border hover:bg-primary/40"
+                }`}
               />
             ))}
+
             <button
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page === totalPages - 1}
               className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:border-primary hover:text-primary disabled:opacity-30 transition-colors"
             >
@@ -265,9 +558,12 @@ function TestimoniSection() {
           </div>
         )}
 
-        {/* CTA */}
         <div className="mt-10 text-center">
-          <Button variant="outline" asChild className="rounded-full px-8 h-11 font-semibold border-primary/30 text-primary hover:bg-primary/5 hover:border-primary">
+          <Button
+            variant="outline"
+            asChild
+            className="rounded-full px-8 h-11 font-semibold border-primary/30 text-primary hover:bg-primary/5 hover:border-primary"
+          >
             <Link href="/destination">
               Lihat Semua Ulasan <ArrowRight className="ml-2 w-4 h-4" />
             </Link>
@@ -278,31 +574,20 @@ function TestimoniSection() {
   );
 }
 
-/* ── Icon renderer for TravelGuide ───────────────────────────────────────── */
-function GuideIcon({ icon, color }: { icon: string; color: string }) {
-  const cls = `w-6 h-6`;
-  const map: Record<string, ReactNode> = {
-    plane: <Plane className={cls} />,
-    home: <Home className={cls} />,
-    utensils: <Utensils className={cls} />,
-    ship: <Ship className={cls} />,
-    anchor: <Anchor className={cls} />,
-  };
-  const colorMap: Record<string, { bg: string; text: string; border: string }> = {
-    blue: { bg: "bg-blue-50", text: "text-blue-500", border: "border-l-blue-500" },
-    emerald: { bg: "bg-emerald-50", text: "text-emerald-500", border: "border-l-emerald-500" },
-    orange: { bg: "bg-orange-50", text: "text-orange-500", border: "border-l-orange-500" },
-    cyan: { bg: "bg-cyan-50", text: "text-cyan-500", border: "border-l-cyan-500" },
-  };
-  const c = colorMap[color] || colorMap.blue;
-  return { icon: map[icon] || <Plane className={cls} />, ...c };
-}
-
 /* ── Destination Card ─────────────────────────────────────────────────────── */
+
 function DestinationCard({
-  destination, index, badge, rankNumber, bgTint,
+  destination,
+  index,
+  badge,
+  rankNumber,
+  bgTint,
 }: {
-  destination: Destination; index: number; badge?: string; rankNumber?: string; bgTint?: string;
+  destination: Destination;
+  index: number;
+  badge?: string;
+  rankNumber?: string;
+  bgTint?: string;
 }) {
   return (
     <motion.div
@@ -314,7 +599,9 @@ function DestinationCard({
     >
       <Link
         href={`/destination/${destination.slug}`}
-        className={`block h-full ${bgTint || "bg-white"} rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative`}
+        className={`block h-full ${
+          bgTint || "bg-white"
+        } rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative`}
         data-testid={`card-destination-${destination.id}`}
       >
         {rankNumber && (
@@ -322,36 +609,58 @@ function DestinationCard({
             {rankNumber}
           </div>
         )}
+
         <div className="relative aspect-[4/3] overflow-hidden bg-muted">
           <img
-            src={destination.image}
+            src={destination.image || FALLBACK_CARD_IMAGE}
             alt={destination.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = FALLBACK_CARD_IMAGE;
+            }}
           />
+
           {badge && (
-            <div className={`absolute top-3 right-3 px-2.5 py-1 backdrop-blur-md text-xs font-bold rounded-full shadow-sm z-10 ${badge.includes("Unggulan") ? "bg-amber-400/90 text-amber-950" : "bg-primary/90 text-white"}`}>
+            <div
+              className={`absolute top-3 right-3 px-2.5 py-1 backdrop-blur-md text-xs font-bold rounded-full shadow-sm z-10 ${
+                badge.includes("Unggulan")
+                  ? "bg-amber-400/90 text-amber-950"
+                  : "bg-primary/90 text-white"
+              }`}
+            >
               {badge}
             </div>
           )}
+
           <div className="absolute top-3 left-3 px-2.5 py-1 bg-white/90 backdrop-blur-md text-xs font-semibold text-foreground rounded-full shadow-sm z-10">
             {destination.category}
           </div>
         </div>
+
         <div className="p-4 relative z-10">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1">
               <Star className="w-3.5 h-3.5 fill-yellow-500 text-yellow-500" />
-              <span className="font-bold text-sm">{destination.ratingAverage}</span>
-              <span className="text-muted-foreground text-xs">({destination.reviewCount.toLocaleString("id-ID")})</span>
+              <span className="font-bold text-sm">
+                {destination.ratingAverage.toFixed(1)}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                ({destination.reviewCount.toLocaleString("id-ID")})
+              </span>
             </div>
+
             <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <Eye className="w-3 h-3" /> {(destination.visitCount / 1000).toFixed(0)}K
+              <Eye className="w-3 h-3" />
+              {destination.visitCount >= 1000
+                ? `${(destination.visitCount / 1000).toFixed(0)}K`
+                : destination.visitCount}
             </div>
           </div>
+
           <h3 className="font-bold text-base text-foreground mb-1.5 line-clamp-2 group-hover:text-primary transition-colors leading-snug">
             {destination.name}
           </h3>
+
           <div className="flex items-center gap-1 text-muted-foreground text-xs">
             <MapPin className="w-3 h-3 shrink-0" />
             <span className="truncate">{destination.location}</span>
@@ -363,18 +672,239 @@ function DestinationCard({
 }
 
 /* ── Main Page ────────────────────────────────────────────────────────────── */
+
 export default function HomePage() {
-  const authenticated = isLoggedIn();
+  const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [aiFeaturedDestinations, setAiFeaturedDestinations] = useState<
+    Destination[]
+  >([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [activeHighlight, setActiveHighlight] =
+    useState<HomepageHighlight | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState("");
+
+  useEffect(() => {
+    const fetchHomepageData = async () => {
+      try {
+        setLoading(true);
+        setErrorText("");
+
+        const [destinationRes, categoryRes, highlightRes, reviewRes] =
+          await Promise.all([
+            fetch(`${API_URL}/destinations`),
+            fetch(`${API_URL}/categories/active`),
+            fetch(`${API_URL}/homepage-highlights/active`),
+            fetch(`${API_URL}/reviews/admin`, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+              },
+            }),
+          ]);
+
+        const [destinationJson, categoryJson, highlightJson, reviewJson] =
+          await Promise.all([
+            destinationRes.json(),
+            categoryRes.json(),
+            highlightRes.json(),
+            reviewRes.json(),
+          ]);
+
+        if (!destinationRes.ok || !destinationJson.success) {
+          throw new Error(
+            destinationJson.message || "Gagal mengambil data destinasi"
+          );
+        }
+
+        if (!categoryRes.ok || !categoryJson.success) {
+          throw new Error(
+            categoryJson.message || "Gagal mengambil data kategori"
+          );
+        }
+
+        if (!highlightRes.ok || !highlightJson.success) {
+          throw new Error(
+            highlightJson.message || "Gagal mengambil data highlight"
+          );
+        }
+
+        const destinationData = Array.isArray(destinationJson.data)
+          ? destinationJson.data
+          : [];
+
+        const categoryData = Array.isArray(categoryJson.data)
+          ? categoryJson.data
+          : [];
+
+        const reviewData =
+          reviewRes.ok && reviewJson.success && Array.isArray(reviewJson.data)
+            ? reviewJson.data
+            : [];
+
+        const normalizedDestinations = destinationData.map(
+          (item: any, index: number) => normalizeDestination(item, index)
+        );
+
+        setDestinations(normalizedDestinations);
+        setCategories(categoryData.map(normalizeCategory));
+
+        setActiveHighlight(
+          highlightJson.data ? normalizeHighlight(highlightJson.data) : null
+        );
+
+        setReviews(
+          reviewData.map((item: any, index: number) =>
+            normalizeReview(item, index)
+          )
+        );
+
+        try {
+          const featuredRes = await fetch(
+            `${RECO_URL}/recommendations/featured?limit=4`
+          );
+
+          const featuredJson = await featuredRes.json();
+
+          const featuredData = Array.isArray(featuredJson.results)
+            ? featuredJson.results
+            : Array.isArray(featuredJson.data)
+            ? featuredJson.data
+            : Array.isArray(featuredJson.recommendations)
+            ? featuredJson.recommendations
+            : [];
+
+          if (featuredRes.ok && featuredData.length > 0) {
+            setAiFeaturedDestinations(
+              featuredData.map((item: any, index: number) =>
+                normalizeAiFeaturedDestination(
+                  item,
+                  index,
+                  normalizedDestinations
+                )
+              )
+            );
+          } else {
+            setAiFeaturedDestinations([]);
+          }
+        } catch (error) {
+          console.error("Gagal mengambil destinasi unggulan dari AI:", error);
+          setAiFeaturedDestinations([]);
+        }
+      } catch (error) {
+        console.error("Gagal mengambil data homepage:", error);
+        setErrorText(
+          error instanceof Error
+            ? error.message
+            : "Tidak bisa terhubung ke server."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchHomepageData();
+  }, []);
+
+  const publishedDestinations = useMemo(() => {
+    return destinations.filter((destination) => destination.isPublished);
+  }, [destinations]);
+
+  const destinasiUnggulan = useMemo(() => {
+    if (aiFeaturedDestinations.length > 0) {
+      return aiFeaturedDestinations.slice(0, 4);
+    }
+
+    return [...publishedDestinations]
+      .sort(
+        (a, b) =>
+          b.ratingAverage - a.ratingAverage ||
+          b.reviewCount - a.reviewCount ||
+          b.visitCount - a.visitCount
+      )
+      .slice(0, 4);
+  }, [aiFeaturedDestinations, publishedDestinations]);
+
+  const destinasiPopuler = useMemo(() => {
+    return [...publishedDestinations]
+      .sort((a, b) => b.visitCount - a.visitCount)
+      .slice(0, 4);
+  }, [publishedDestinations]);
+
+  const activeCategories = useMemo(() => {
+    return categories
+      .filter((category) => category.isActive)
+      .map((category) => {
+        const normalizedCategory = normalizeCategoryText(category.name);
+
+        const matchedCategoryName = getMatchedDestinationCategory(
+          category.name,
+          publishedDestinations
+        );
+
+        const countFromDestination = publishedDestinations.filter(
+          (destination) =>
+            normalizeCategoryText(destination.category) === normalizedCategory
+        ).length;
+
+        return {
+          ...category,
+          name: matchedCategoryName,
+          count: countFromDestination || category.count,
+        };
+      });
+  }, [categories, publishedDestinations]);
+
+  const averageRating = useMemo(() => {
+    const reviewBasedRating =
+      reviews.length > 0
+        ? reviews.reduce((sum, review) => sum + review.rating, 0) /
+          reviews.length
+        : 0;
+
+    if (reviewBasedRating > 0) return reviewBasedRating;
+
+    if (publishedDestinations.length === 0) return 0;
+
+    const total = publishedDestinations.reduce(
+      (sum, destination) => sum + destination.ratingAverage,
+      0
+    );
+
+    return total / publishedDestinations.length;
+  }, [reviews, publishedDestinations]);
+
+  const totalVisit = useMemo(() => {
+    return publishedDestinations.reduce(
+      (sum, destination) => sum + destination.visitCount,
+      0
+    );
+  }, [publishedDestinations]);
 
   return (
     <div className="flex flex-col min-h-screen">
+      {loading && (
+        <div className="fixed top-20 left-1/2 z-50 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-xs font-medium text-gray-500 shadow">
+          Memuat data homepage...
+        </div>
+      )}
+
+      {errorText && (
+        <div className="fixed top-20 left-1/2 z-50 w-[90%] max-w-md -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-xs font-medium text-red-600 shadow">
+          {errorText}
+        </div>
+      )}
 
       {/* ── Hero ── */}
       <section className="relative h-[88vh] min-h-[620px] flex items-end justify-center overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-[#003060]/60 via-[#005A9E]/40 to-[#00090F]/80 z-10" />
+
         <div
           className="absolute inset-0 bg-cover bg-center scale-105"
-          style={{ backgroundImage: "url('https://images.unsplash.com/photo-1518509562904-e7ef99cdcc86?q=80&w=2574&auto=format&fit=crop')" }}
+          style={{
+            backgroundImage: `url('${FALLBACK_HERO_IMAGE}')`,
+          }}
         />
 
         <div className="container relative z-20 mx-auto px-6 pb-20 text-center text-white">
@@ -394,7 +924,8 @@ export default function HomePage() {
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
             className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 drop-shadow-md leading-tight"
           >
-            Temukan Pesona<br />
+            Temukan Pesona
+            <br />
             <span className="text-[#5DD8FF]">Tanjung Pinang</span>
           </motion.h1>
 
@@ -404,7 +935,8 @@ export default function HomePage() {
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.25 }}
             className="text-lg md:text-xl font-medium text-white/85 max-w-2xl mx-auto mb-10"
           >
-            Jelajahi keindahan alam, kekayaan sejarah, dan kelezatan kuliner di kota gurindam negeri pantun.
+            Jelajahi keindahan alam, kekayaan sejarah, dan kelezatan kuliner di
+            kota gurindam negeri pantun.
           </motion.p>
 
           <motion.div
@@ -413,10 +945,22 @@ export default function HomePage() {
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.4 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Button size="lg" className="h-14 px-8 text-base font-bold shadow-xl bg-white text-primary hover:bg-white/90 rounded-full" asChild data-testid="button-jelajahi">
+            <Button
+              size="lg"
+              className="h-14 px-8 text-base font-bold shadow-xl bg-white text-primary hover:bg-white/90 rounded-full"
+              asChild
+              data-testid="button-jelajahi"
+            >
               <Link href="/destination">Jelajahi Sekarang</Link>
             </Button>
-            <Button size="lg" variant="outline" className="h-14 px-8 text-base font-semibold bg-white/10 text-white border-white/30 hover:bg-white/20 hover:text-white backdrop-blur-sm rounded-full" asChild data-testid="button-lihat-semua">
+
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-14 px-8 text-base font-semibold bg-white/10 text-white border-white/30 hover:bg-white/20 hover:text-white backdrop-blur-sm rounded-full"
+              asChild
+              data-testid="button-lihat-semua"
+            >
               <Link href="/destination">Lihat Semua Destinasi</Link>
             </Button>
           </motion.div>
@@ -428,13 +972,29 @@ export default function HomePage() {
             className="mt-16 flex items-center justify-center gap-10 md:gap-20 text-white/90"
           >
             {[
-              { val: "50+", label: "Destinasi" },
-              { val: "4.8★", label: "Rating Rata-rata" },
-              { val: "10K+", label: "Pengunjung" },
+              {
+                val: `${publishedDestinations.length}+`,
+                label: "Destinasi",
+              },
+              {
+                val:
+                  averageRating > 0
+                    ? `${averageRating.toFixed(1)}★`
+                    : "0.0★",
+                label: "Rating Rata-rata",
+              },
+              {
+                val: formatCompactNumber(totalVisit),
+                label: "Pengunjung",
+              },
             ].map((stat, i) => (
               <div key={i} className="flex flex-col items-center">
-                <span className="text-2xl md:text-3xl font-bold">{stat.val}</span>
-                <span className="text-xs md:text-sm font-medium mt-1 text-white/70">{stat.label}</span>
+                <span className="text-2xl md:text-3xl font-bold">
+                  {stat.val}
+                </span>
+                <span className="text-xs md:text-sm font-medium mt-1 text-white/70">
+                  {stat.label}
+                </span>
               </div>
             ))}
           </motion.div>
@@ -445,41 +1005,65 @@ export default function HomePage() {
       <section id="kategori" className="py-20 bg-muted/30">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
-            <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">Jelajahi Tanjung Pinang</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">Eksplorasi Berdasarkan Kategori</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">Pilih jenis liburan yang Anda inginkan dan temukan destinasi terbaik.</p>
+            <p className="text-xs font-bold tracking-widest text-primary uppercase mb-3">
+              Jelajahi Tanjung Pinang
+            </p>
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Eksplorasi Berdasarkan Kategori
+            </h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">
+              Pilih jenis liburan yang Anda inginkan dan temukan destinasi
+              terbaik.
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {activeCategories.map((cat, i) => (
-              <motion.div
-                key={cat.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.08 }}
-              >
-                <Link
-                  href={`/destination?kategori=${encodeURIComponent(cat.id)}`}
-                  className="block relative rounded-2xl overflow-hidden group aspect-[3/4] shadow-sm hover:-translate-y-1.5 transition-all duration-300"
-                  data-testid={`card-category-${cat.id}`}
+          {activeCategories.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-white py-12 text-center text-sm text-muted-foreground">
+              Belum ada kategori aktif dari admin.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {activeCategories.map((cat, i) => (
+                <motion.div
+                  key={cat.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: i * 0.08 }}
                 >
-                  <img
-                    src={cat.image}
-                    alt={cat.name}
-                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent group-hover:from-black/90 transition-colors duration-300" />
-                  <div className="absolute bottom-0 left-0 w-full p-4 flex flex-col items-center text-center">
-                    <span className="text-xl mb-1">{cat.emoji}</span>
-                    <h3 className="font-bold text-white text-sm leading-tight mb-0.5">{cat.name}</h3>
-                    <span className="text-xs text-white/65">{cat.count} Tempat</span>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
+                  <Link
+                    href={`/destination?kategori=${encodeURIComponent(
+                      cat.name
+                    )}`}
+                    className="block relative rounded-2xl overflow-hidden group aspect-[3/4] shadow-sm hover:-translate-y-1.5 transition-all duration-300"
+                    data-testid={`card-category-${cat.id}`}
+                  >
+                    <img
+                      src={cat.image || FALLBACK_CARD_IMAGE}
+                      alt={cat.name}
+                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          FALLBACK_CARD_IMAGE;
+                      }}
+                    />
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent group-hover:from-black/90 transition-colors duration-300" />
+
+                    <div className="absolute bottom-0 left-0 w-full p-4 flex flex-col items-center text-center">
+                      <span className="text-xl mb-1">{cat.emoji}</span>
+                      <h3 className="font-bold text-white text-sm leading-tight mb-0.5">
+                        {cat.name}
+                      </h3>
+                      <span className="text-xs text-white/65">
+                        {cat.count} Tempat
+                      </span>
+                    </div>
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -488,22 +1072,45 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <p className="text-xs font-bold tracking-widest text-primary uppercase mb-2">Terpopuler</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-2">Destinasi Unggulan</h2>
-              <p className="text-muted-foreground">Tempat wisata dengan rating tertinggi dari pengunjung.</p>
+              <p className="text-xs font-bold tracking-widest text-primary uppercase mb-2">
+                Terpopuler
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
+                Destinasi Unggulan
+              </h2>
+              <p className="text-muted-foreground">
+                Rekomendasi destinasi unggulan berdasarkan sistem AI.
+              </p>
             </div>
-            <Button variant="ghost" className="hidden sm:flex group text-primary hover:text-primary" asChild>
+
+            <Button
+              variant="ghost"
+              className="hidden sm:flex group text-primary hover:text-primary"
+              asChild
+            >
               <Link href="/destination">
-                Lihat Semua <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                Lihat Semua{" "}
+                <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {destinasiUnggulan.map((dest, i) => (
-              <DestinationCard key={dest.id} destination={dest} index={i} badge="⭐ Unggulan" />
-            ))}
-          </div>
+          {destinasiUnggulan.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-white py-12 text-center text-sm text-muted-foreground">
+              Belum ada destinasi unggulan dari database atau AI.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {destinasiUnggulan.map((dest, i) => (
+                <DestinationCard
+                  key={`${dest.id}-${dest.slug}`}
+                  destination={dest}
+                  index={i}
+                  badge="⭐ Unggulan"
+                />
+              ))}
+            </div>
+          )}
 
           <Button variant="outline" className="w-full mt-6 sm:hidden" asChild>
             <Link href="/destination">Lihat Semua Destinasi</Link>
@@ -523,25 +1130,38 @@ export default function HomePage() {
               className="relative rounded-3xl overflow-hidden bg-slate-900 shadow-2xl min-h-[360px] flex items-end"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-slate-900/95 via-slate-900/70 to-transparent z-10" />
+
               <img
-                src={activeHighlight.image}
+                src={activeHighlight.image || FALLBACK_CARD_IMAGE}
                 alt={activeHighlight.title}
                 className="absolute inset-0 w-full h-full object-cover opacity-60"
-                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = FALLBACK_CARD_IMAGE;
+                }}
               />
 
               <div className="relative z-20 p-8 md:p-14 flex flex-col md:max-w-[60%]">
                 <span className="px-3 py-1 bg-primary/80 text-white font-bold rounded-full text-xs w-max mb-5 backdrop-blur-sm border border-primary/30">
                   {activeHighlight.badge}
                 </span>
+
                 <h2 className="text-2xl md:text-4xl font-bold text-white mb-4 leading-tight">
                   {activeHighlight.title}
                 </h2>
+
                 <p className="text-slate-300 text-base mb-8 leading-relaxed">
                   {activeHighlight.subtitle}
                 </p>
-                <Button size="lg" className="w-max bg-white text-primary hover:bg-white/90 font-bold shadow-xl" asChild data-testid="button-highlight-cta">
-                  <Link href={activeHighlight.buttonLink}>{activeHighlight.buttonText} →</Link>
+
+                <Button
+                  size="lg"
+                  className="w-max bg-white text-primary hover:bg-white/90 font-bold shadow-xl"
+                  asChild
+                  data-testid="button-highlight-cta"
+                >
+                  <Link href={activeHighlight.buttonLink}>
+                    {activeHighlight.buttonText} →
+                  </Link>
                 </Button>
               </div>
             </motion.div>
@@ -554,74 +1174,41 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <p className="text-xs font-bold tracking-widest text-primary uppercase mb-2">Trending</p>
-              <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-2">Paling Banyak Dikunjungi</h2>
-              <p className="text-muted-foreground">Destinasi favorit wisatawan berdasarkan jumlah kunjungan.</p>
+              <p className="text-xs font-bold tracking-widest text-primary uppercase mb-2">
+                Trending
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
+                Paling Banyak Dikunjungi
+              </h2>
+              <p className="text-muted-foreground">
+                Destinasi favorit wisatawan berdasarkan jumlah kunjungan.
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {destinasiPopuler.map((dest, i) => (
-              <DestinationCard
-                key={dest.id}
-                destination={dest}
-                index={i}
-                rankNumber={`0${i + 1}`}
-                badge={`#${i + 1} Populer`}
-                bgTint="bg-slate-50"
-              />
-            ))}
-          </div>
+          {destinasiPopuler.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-white py-12 text-center text-sm text-muted-foreground">
+              Belum ada data destinasi populer dari database.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {destinasiPopuler.map((dest, i) => (
+                <DestinationCard
+                  key={dest.id}
+                  destination={dest}
+                  index={i}
+                  rankNumber={`0${i + 1}`}
+                  badge={`#${i + 1} Populer`}
+                  bgTint="bg-slate-50"
+                />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
       {/* ── Testimoni / Apa Kata Pengunjung ── */}
-      <TestimoniSection />
-
-      {/* ── CTA ── */}
-      <section className="py-28 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0064B4] via-primary to-[#00C4E8] z-0" />
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200')] bg-cover bg-center opacity-10 mix-blend-overlay z-0" />
-
-        <div className="container relative z-10 mx-auto px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-5 leading-tight">
-              Siap Menjelajahi<br />Tanjung Pinang?
-            </h2>
-            <p className="text-lg md:text-xl text-white/85 mb-3 max-w-2xl mx-auto font-medium">
-              Temukan destinasi terbaik, kuliner lokal, dan panduan liburan dalam satu platform.
-            </p>
-            <p className="text-white/60 text-sm mb-10">Bergabung dengan 10.000+ wisatawan yang telah mempercayai kami.</p>
-
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Button
-                size="lg"
-                className="h-14 px-10 text-base font-bold rounded-full shadow-2xl bg-white text-primary hover:bg-white/95 transition-all hover:-translate-y-0.5"
-                asChild
-                data-testid="button-cta-eksplorasi"
-              >
-                <Link href="/destination">Mulai Eksplorasi →</Link>
-              </Button>
-              {!authenticated && (
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="h-14 px-10 text-base font-semibold rounded-full bg-white/10 text-white border-white/30 hover:bg-white/20 backdrop-blur-sm"
-                  asChild
-                  data-testid="button-cta-register"
-                >
-                  <Link href="/register">Daftar Gratis</Link>
-                </Button>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      </section>
+      <TestimoniSection reviews={reviews} />
 
       <Footer />
     </div>
