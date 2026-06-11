@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Zap, X, RefreshCw, AlertCircle, Users, Calendar, MapPin } from "lucide-react";
+import {
+  Zap,
+  X,
+  RefreshCw,
+  AlertCircle,
+  ExternalLink,
+} from "lucide-react";
 
 const API_BASE_URL = "http://localhost:3000/api";
 
@@ -29,6 +35,12 @@ function formatRp(value) {
   return `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
 }
 
+function getDestinationUrl(item) {
+  if (!item?.destinationSlug) return null;
+
+  return `/destination/${item.destinationSlug}`;
+}
+
 async function fetchAdminItineraryLogs() {
   const token = localStorage.getItem("token");
 
@@ -47,7 +59,9 @@ async function fetchAdminItineraryLogs() {
     json = JSON.parse(text);
   } catch {
     console.error("Response bukan JSON:", text);
-    throw new Error("Backend tidak mengembalikan JSON. Cek route /api/itineraries/admin/logs.");
+    throw new Error(
+      "Backend tidak mengembalikan JSON. Cek route /api/itineraries/admin/logs."
+    );
   }
 
   if (!res.ok || !json.success) {
@@ -55,6 +69,31 @@ async function fetchAdminItineraryLogs() {
   }
 
   return json.data || [];
+}
+
+function DestinationName({ item }) {
+  const detailUrl = getDestinationUrl(item);
+
+  if (!detailUrl) {
+    return (
+      <p className="text-sm font-semibold text-gray-800">
+        {item.destinationName}
+      </p>
+    );
+  }
+
+  return (
+    <a
+      href={detailUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 text-sm font-semibold text-indigo-700 hover:text-indigo-900 hover:underline"
+      title="Buka detail destinasi"
+    >
+      {item.destinationName}
+      <ExternalLink size={12} />
+    </a>
+  );
 }
 
 function LogDetail({ log: it, onClose }) {
@@ -72,10 +111,13 @@ function LogDetail({ log: it, onClose }) {
           <div>
             <p className="text-base font-bold text-gray-900">{it.userName}</p>
             <p className="text-xs text-gray-500 mt-0.5">{it.userEmail}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatDate(it.createdAt)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {formatDate(it.createdAt)}
+            </p>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"
           >
@@ -139,7 +181,7 @@ function LogDetail({ log: it, onClose }) {
 
         {it.notes && (
           <div className="mb-5">
-            <p className="text-xs text-gray-400 mb-2">Catatan User</p>
+            <p className="text-xs text-gray-400 mb-2">Catatan User / AI</p>
             <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-800">
               {it.notes}
             </div>
@@ -164,9 +206,7 @@ function LogDetail({ log: it, onClose }) {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-800">
-                        {item.destinationName}
-                      </p>
+                      <DestinationName item={item} />
 
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500">
                         Hari {item.day}
@@ -175,21 +215,56 @@ function LogDetail({ log: it, onClose }) {
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500">
                         {item.time}
                       </span>
+
+                      {item.destinationId || item.destinationSlug ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
+                          Terhubung DB
+                        </span>
+                      ) : (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700">
+                          Dari AI
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-xs text-gray-500 mt-1">
-                      {item.category} · {item.duration} · {formatRp(item.estimatedCost)}
+                      {item.category || "Wisata"} · {item.duration || "-"} ·{" "}
+                      {formatRp(item.estimatedCost)}
                     </p>
+
+                    {item.description && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {item.description}
+                      </p>
+                    )}
 
                     {item.tips && (
                       <p className="text-xs text-gray-500 mt-1 line-clamp-2">
                         Tips: {item.tips}
                       </p>
                     )}
+
+                    {item.mapsUrl && (
+                      <a
+                        href={item.mapsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+                      >
+                        Buka Maps
+                        <ExternalLink size={11} />
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {(!it.items || it.items.length === 0) && (
+          <div className="py-8 text-center text-sm text-gray-400">
+            Detail itinerary belum tersedia.
           </div>
         )}
       </div>
@@ -234,7 +309,10 @@ export default function Itinerary() {
       const matchSearch =
         String(it.userName || "").toLowerCase().includes(q) ||
         String(it.userEmail || "").toLowerCase().includes(q) ||
-        String(it.title || "").toLowerCase().includes(q);
+        String(it.title || "").toLowerCase().includes(q) ||
+        (it.generatedDestinations || []).some((destination) =>
+          String(destination || "").toLowerCase().includes(q)
+        );
 
       const matchBudget = filterBudget === "all" || it.budget === filterBudget;
 
@@ -252,6 +330,8 @@ export default function Itinerary() {
     const budgetCount = { hemat: 0, menengah: 0, premium: 0 };
     const interestCount = {};
     const destCount = {};
+    let connectedDestinationCount = 0;
+    let totalItemCount = 0;
 
     itineraryLogs.forEach((it) => {
       if (it.budget) {
@@ -262,8 +342,17 @@ export default function Itinerary() {
         interestCount[interest] = (interestCount[interest] || 0) + 1;
       });
 
-      (it.generatedDestinations || []).forEach((destination) => {
-        destCount[destination] = (destCount[destination] || 0) + 1;
+      (it.items || []).forEach((item) => {
+        totalItemCount += 1;
+
+        if (item.destinationId || item.destinationSlug) {
+          connectedDestinationCount += 1;
+        }
+
+        if (item.destinationName) {
+          destCount[item.destinationName] =
+            (destCount[item.destinationName] || 0) + 1;
+        }
       });
     });
 
@@ -285,12 +374,19 @@ export default function Itinerary() {
     const topBudget =
       Object.entries(budgetCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
 
+    const connectedPercentage = totalItemCount
+      ? Math.round((connectedDestinationCount / totalItemCount) * 100)
+      : 0;
+
     return {
       budgetCount,
       topInterests,
       topDests,
       avgDuration,
       topBudget,
+      connectedDestinationCount,
+      totalItemCount,
+      connectedPercentage,
     };
   }, [itineraryLogs]);
 
@@ -303,8 +399,8 @@ export default function Itinerary() {
               Itinerary Logs
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {itineraryLogs.length} itinerary dibuat via AI · data dari database
-              user
+              {itineraryLogs.length} itinerary dibuat via AI · data dari
+              database user
             </p>
           </div>
 
@@ -323,9 +419,11 @@ export default function Itinerary() {
         <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl mb-6">
           <Zap size={15} className="text-blue-500 shrink-0 mt-0.5" />
           <p className="text-sm text-blue-800">
-            Halaman ini menampilkan itinerary yang dibuat user melalui AI
-            Itinerary. Data diambil dari tabel <strong>itineraries</strong>,{" "}
-            <strong>itinerary_items</strong>, dan <strong>users</strong>.
+            Halaman ini menampilkan itinerary yang dibuat user melalui AI.
+            Destinasi yang cocok dengan tabel <strong>destinations</strong>{" "}
+            akan memiliki <strong>destination_id</strong> dan{" "}
+            <strong>destination_slug</strong>, sehingga bisa diarahkan ke detail
+            destinasi.
           </p>
         </div>
 
@@ -336,7 +434,7 @@ export default function Itinerary() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
             <p className="text-xs text-gray-400">Total Generate</p>
             <p className="text-2xl font-bold text-rose-600 mt-1">
@@ -369,6 +467,17 @@ export default function Itinerary() {
             </p>
             <p className="text-xs text-gray-400">
               {analytics.topInterests[0]?.[1] || 0}x dipilih
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-gray-400">Terhubung DB</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">
+              {analytics.connectedPercentage}%
+            </p>
+            <p className="text-xs text-gray-400">
+              {analytics.connectedDestinationCount}/{analytics.totalItemCount}{" "}
+              item
             </p>
           </div>
         </div>
@@ -421,7 +530,10 @@ export default function Itinerary() {
 
             <div className="space-y-2.5">
               {analytics.topInterests.map(([interest, count]) => (
-                <div key={interest} className="flex items-center justify-between">
+                <div
+                  key={interest}
+                  className="flex items-center justify-between"
+                >
                   <span className="text-sm text-gray-700">{interest}</span>
 
                   <div className="flex items-center gap-2">
@@ -460,7 +572,7 @@ export default function Itinerary() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Cari nama user, email, atau judul..."
+              placeholder="Cari nama user, email, judul, atau destinasi..."
               className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
             />
           </div>
@@ -583,6 +695,7 @@ export default function Itinerary() {
 
                       <td className="px-5 py-3.5">
                         <button
+                          type="button"
                           onClick={() => setSelected(it)}
                           className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 transition-colors"
                         >
@@ -598,7 +711,9 @@ export default function Itinerary() {
         </div>
       </div>
 
-      {selected && <LogDetail log={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <LogDetail log={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }

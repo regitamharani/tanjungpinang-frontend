@@ -42,6 +42,9 @@ import { clearAuth, getUser, isLoggedIn } from "@/services/api";
 
 const API_URL = "http://localhost:3000/api";
 
+// Ganti port ini kalau dashboard admin kamu bukan 5174
+const ADMIN_LOGOUT_URL = "http://localhost:5174/?logout=1";
+
 const profileSchema = z.object({
   nama: z.string().min(3, "Nama minimal 3 karakter"),
   email: z.string().email("Email tidak valid"),
@@ -253,6 +256,9 @@ export default function AccountPage() {
     localStorage.setItem("user", JSON.stringify(updatedUser));
     setIsEditOpen(false);
 
+    window.dispatchEvent(new Event("authChanged"));
+    window.dispatchEvent(new Event("storage"));
+
     toast({
       title: "Profil Diperbarui",
       description: "Perubahan Anda telah disimpan.",
@@ -260,10 +266,35 @@ export default function AccountPage() {
   };
 
   const handleLogout = () => {
+    let currentUser: any = null;
+
+    try {
+      currentUser =
+        getUser() || JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      currentUser = null;
+    }
+
+    const role = String(currentUser?.role || "").trim().toLowerCase();
+
     clearAuth();
 
     localStorage.removeItem("favorit");
     localStorage.removeItem("dilihat");
+
+    sessionStorage.clear();
+
+    window.dispatchEvent(new Event("authChanged"));
+    window.dispatchEvent(new Event("storage"));
+
+    /*
+      Kalau yang logout dari website utama adalah admin,
+      dashboard admin juga ikut logout.
+    */
+    if (role === "admin") {
+      window.location.href = ADMIN_LOGOUT_URL;
+      return;
+    }
 
     setLocation("/login");
   };

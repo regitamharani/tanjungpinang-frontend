@@ -20,7 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const USER_WEBSITE_URL = "http://localhost:5173";
-const USER_LOGIN_URL = "http://localhost:5173/login?logout=1";
+const USER_LOGIN_URL = "http://localhost:5173/login";
+const ADMIN_LOGIN_URL = "/login";
 
 const navGroups = [
   {
@@ -66,6 +67,11 @@ const clearAuth = () => {
   localStorage.removeItem("user");
 };
 
+const isAdminUser = (user) => {
+  const role = String(user?.role || "").trim().toLowerCase();
+  return role === "admin";
+};
+
 function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
   const location = useLocation();
 
@@ -78,9 +84,9 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
   useEffect(() => {
     const savedUser = getStoredUser();
 
-    if (savedUser) {
+    if (savedUser && isAdminUser(savedUser)) {
       setAdminUser({
-        nama: savedUser.nama || "Admin",
+        nama: savedUser.nama || savedUser.name || "Admin",
         email: savedUser.email || "admin@tanjungpinang.id",
         role: savedUser.role || "admin",
       });
@@ -91,18 +97,47 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
     clearAuth();
     sessionStorage.clear();
 
-    window.location.replace(USER_LOGIN_URL);
+    /*
+      Logout dari dashboard admin.
+      Website utama ikut dipaksa logout lewat forceLogout=1.
+      Pastikan di website utama sudah ada AdminAccessHandler.
+    */
+    window.location.replace(`${USER_LOGIN_URL}?forceLogout=1`);
   };
 
   const handleOpenWebsite = () => {
-    window.open(USER_WEBSITE_URL, "_blank", "noopener,noreferrer");
+    const token = localStorage.getItem("token");
+    const refreshToken = localStorage.getItem("refreshToken");
+    const user = getStoredUser();
+
+    if (!token || !user || !isAdminUser(user)) {
+      clearAuth();
+      sessionStorage.clear();
+
+      alert("Silakan login sebagai admin terlebih dahulu.");
+
+      window.location.replace(USER_LOGIN_URL);
+      return;
+    }
+
+    const encodedToken = encodeURIComponent(token);
+    const encodedRefreshToken = encodeURIComponent(refreshToken || "");
+    const encodedUser = encodeURIComponent(JSON.stringify(user));
+
+    /*
+      Jangan buka USER_WEBSITE_URL biasa.
+      Harus kirim token admin supaya website utama menimpa akun user biasa
+      menjadi akun admin.
+    */
+    const adminAccessUrl = `${USER_WEBSITE_URL}/?adminAccess=1&token=${encodedToken}&refreshToken=${encodedRefreshToken}&user=${encodedUser}`;
+
+    window.open(adminAccessUrl, "_blank");
   };
 
   const initial = adminUser.nama?.charAt(0)?.toUpperCase() || "A";
 
   return (
     <div className="flex flex-col h-full">
-      {/* Logo */}
       <div className="h-14 flex items-center justify-between px-4 border-b border-gray-100 shrink-0">
         {!collapsed && (
           <div className="flex items-center gap-2 min-w-0">
@@ -127,7 +162,6 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
         </button>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto">
         <div className="px-2 space-y-0.5">
           {navGroups.map((group) => (
@@ -175,7 +209,6 @@ function SidebarContent({ collapsed, setCollapsed, onNavClick }) {
         </div>
       </nav>
 
-      {/* Website Access + User / Logout */}
       <div
         className={cn(
           "border-t border-gray-100 shrink-0",
@@ -251,6 +284,31 @@ export default function Layout() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
+    /*
+      Dipakai saat admin logout dari website utama.
+      Website utama akan redirect ke:
+      http://localhost:5174/?logout=1
+    */
+    const logout = params.get("logout");
+
+    if (logout === "1") {
+      clearAuth();
+      sessionStorage.clear();
+
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname
+      );
+
+      window.location.replace(ADMIN_LOGIN_URL);
+      return;
+    }
+
+    /*
+      Dipakai saat login dari website utama lalu redirect ke dashboard admin:
+      http://localhost:5174/?token=...&refreshToken=...&user=...
+    */
     const token = params.get("token");
     const refreshToken = params.get("refreshToken");
     const userParam = params.get("user");
@@ -258,10 +316,10 @@ export default function Layout() {
     if (token && userParam) {
       try {
         const parsedUser = JSON.parse(decodeURIComponent(userParam));
-        const role = String(parsedUser.role || "").trim().toLowerCase();
 
-        if (role !== "admin") {
+        if (!isAdminUser(parsedUser)) {
           clearAuth();
+          sessionStorage.clear();
           window.location.replace(USER_LOGIN_URL);
           return;
         }
@@ -270,6 +328,8 @@ export default function Layout() {
 
         if (refreshToken) {
           localStorage.setItem("refreshToken", refreshToken);
+        } else {
+          localStorage.removeItem("refreshToken");
         }
 
         localStorage.setItem("user", JSON.stringify(parsedUser));
@@ -281,6 +341,7 @@ export default function Layout() {
         );
       } catch {
         clearAuth();
+        sessionStorage.clear();
         window.location.replace(USER_LOGIN_URL);
         return;
       }
@@ -289,21 +350,40 @@ export default function Layout() {
     const savedToken = localStorage.getItem("token");
     const savedUser = getStoredUser();
 
-    if (!savedToken || !savedUser) {
+    if (!savedToken || !savedUser || !isAdminUser(savedUser)) {
       clearAuth();
-      window.location.replace(USER_LOGIN_URL);
-      return;
-    }
-
-    const role = String(savedUser.role || "").trim().toLowerCase();
-
-    if (role !== "admin") {
-      clearAuth();
+      sessionStorage.clear();
       window.location.replace(USER_LOGIN_URL);
       return;
     }
 
     setCheckingAuth(false);
+  }, []);
+
+  /*
+    Ini penting untuk kasus tab admin masih terbuka.
+    Saat balik ke tab admin, sistem cek lagi apakah akun masih admin.
+    Kalau user biasa login atau token hilang, dashboard admin langsung logout.
+  */
+  useEffect(() => {
+    const checkAdminStillValid = () => {
+      const savedToken = localStorage.getItem("token");
+      const savedUser = getStoredUser();
+
+      if (!savedToken || !savedUser || !isAdminUser(savedUser)) {
+        clearAuth();
+        sessionStorage.clear();
+        window.location.replace(USER_LOGIN_URL);
+      }
+    };
+
+    window.addEventListener("focus", checkAdminStillValid);
+    window.addEventListener("storage", checkAdminStillValid);
+
+    return () => {
+      window.removeEventListener("focus", checkAdminStillValid);
+      window.removeEventListener("storage", checkAdminStillValid);
+    };
   }, []);
 
   useEffect(() => {
@@ -337,7 +417,6 @@ export default function Layout() {
         />
       )}
 
-      {/* Mobile drawer */}
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 w-60 bg-white border-r border-gray-100 shadow-xl transition-transform duration-300 md:hidden",
@@ -359,7 +438,6 @@ export default function Layout() {
         />
       </aside>
 
-      {/* Desktop sidebar */}
       <aside
         className={cn(
           "hidden md:flex flex-col bg-white border-r border-gray-100 transition-all duration-300 shrink-0",
@@ -373,9 +451,7 @@ export default function Layout() {
         />
       </aside>
 
-      {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile top navbar */}
         <div className="md:hidden flex items-center gap-3 px-4 h-12 bg-white border-b border-gray-100 shrink-0">
           <button
             type="button"

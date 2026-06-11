@@ -99,17 +99,53 @@ const INTERESTS_LIST = [
   "Sejarah",
   "Kuliner",
   "Pantai",
+  "Religi",
+  "Ikon Kota",
   "Semua Kategori",
 ];
 
 const BUDGET_OPTIONS: { key: BudgetType; label: string; desc: string }[] = [
-  { key: "hemat", label: "💰 Hemat", desc: "< Rp 300K/hari" },
-  { key: "menengah", label: "💳 Menengah", desc: "Rp 300K-700K/hari" },
-  { key: "premium", label: "💎 Premium", desc: "> Rp 700K/hari" },
+  { key: "hemat", label: "💰 Hemat", desc: "< Rp 300K/orang/hari" },
+  {
+    key: "menengah",
+    label: "💳 Menengah",
+    desc: "Rp 300K-700K/orang/hari",
+  },
+  { key: "premium", label: "💎 Premium", desc: "> Rp 700K/orang/hari" },
 ];
 
-function formatRp(n: number) {
-  return `Rp ${Number(n || 0).toLocaleString("id-ID")}`;
+function formatRp(value: number) {
+  return `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
+}
+
+function formatDate(value: string) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatDateTime(value: string) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
 }
 
 function getLoggedUser(): User | null {
@@ -120,6 +156,39 @@ function getLoggedUser(): User | null {
   return user;
 }
 
+function getDestinationHref(item: ItineraryItem) {
+  if (!item.destinationSlug) return null;
+
+  return `/destination/${item.destinationSlug}`;
+}
+
+function getDayActivityEstimate(items: ItineraryItem[]) {
+  return items.reduce(
+    (sum, item) => sum + Number(item.estimatedCost || 0),
+    0
+  );
+}
+
+function getPerPersonEstimate(total: number, people: number) {
+  const safePeople = Math.max(Number(people || 1), 1);
+
+  return Math.round(Number(total || 0) / safePeople);
+}
+
+function ActivityEstimate({ value }: { value: number }) {
+  return (
+    <div className="text-right shrink-0">
+      <p className="text-[10px] text-muted-foreground leading-none mb-1 print:text-gray-500">
+        Estimasi aktivitas
+      </p>
+
+      <p className="text-xs text-primary font-bold print:text-gray-700">
+        {formatRp(value)}
+      </p>
+    </div>
+  );
+}
+
 function ItineraryResult({
   itinerary,
   onNew,
@@ -128,6 +197,16 @@ function ItineraryResult({
   onNew: () => void;
 }) {
   const { toast } = useToast();
+
+  const totalPerPersonMin = getPerPersonEstimate(
+    itinerary.estimatedCostMin,
+    itinerary.people
+  );
+
+  const totalPerPersonMax = getPerPersonEstimate(
+    itinerary.estimatedCostMax,
+    itinerary.people
+  );
 
   const handlePrint = () => {
     toast({
@@ -164,12 +243,7 @@ function ItineraryResult({
         </h1>
 
         <p className="text-sm text-gray-600 mt-1">
-          Dibuat pada{" "}
-          {new Date(itinerary.createdAt).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          })}
+          Dibuat pada {formatDate(itinerary.createdAt)}
         </p>
       </div>
 
@@ -187,12 +261,7 @@ function ItineraryResult({
               </h2>
 
               <p className="text-sm text-muted-foreground mt-1">
-                Dibuat{" "}
-                {new Date(itinerary.createdAt).toLocaleDateString("id-ID", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
+                Dibuat {formatDate(itinerary.createdAt)}
               </p>
             </div>
 
@@ -295,7 +364,7 @@ function ItineraryResult({
         <div className="bg-white rounded-2xl border border-border p-5 shadow-sm print:shadow-none print:border-gray-300 print:rounded-xl print:p-4 print:break-inside-avoid">
           <h3 className="font-bold text-foreground mb-3 flex items-center gap-2 print:text-gray-900 print:text-sm">
             <Wallet className="w-4 h-4 text-primary" />
-            Estimasi Total Biaya
+            Estimasi Total untuk {itinerary.people} Orang
           </h3>
 
           <div className="text-3xl font-black text-primary print:text-xl">
@@ -306,9 +375,19 @@ function ItineraryResult({
             s/d {formatRp(itinerary.estimatedCostMax)}
           </div>
 
+          <div className="mt-4 rounded-xl bg-primary/5 border border-primary/10 px-4 py-3 print:bg-gray-50 print:border-gray-300">
+            <p className="text-xs text-muted-foreground print:text-gray-500">
+              Estimasi per orang
+            </p>
+
+            <p className="text-base font-extrabold text-primary print:text-gray-900">
+              {formatRp(totalPerPersonMin)} s/d {formatRp(totalPerPersonMax)}
+            </p>
+          </div>
+
           <p className="text-xs text-muted-foreground mt-3 print:text-gray-500">
-            *Termasuk akomodasi & makan. Belum termasuk transport dari/ke kota
-            asal.
+            *Budget dihitung berdasarkan perkiraan biaya per orang per hari.
+            Harga tiket asli dapat dilihat pada halaman detail destinasi.
           </p>
         </div>
 
@@ -326,6 +405,7 @@ function ItineraryResult({
 
       {days.map((day) => {
         const dayItems = itinerary.items.filter((item) => item.day === day);
+        const dayActivityEstimate = getDayActivityEstimate(dayItems);
 
         return (
           <div
@@ -343,100 +423,112 @@ function ItineraryResult({
                 </h3>
 
                 <p className="text-xs text-muted-foreground print:text-gray-600">
-                  {dayItems.length} aktivitas · Est.{" "}
-                  {formatRp(
-                    dayItems.reduce((sum, item) => sum + item.estimatedCost, 0)
-                  )}
+                  {dayItems.length} aktivitas · Estimasi aktivitas{" "}
+                  {formatRp(dayActivityEstimate)}
                 </p>
               </div>
             </div>
 
             <div className="divide-y divide-border print:divide-gray-200">
-              {dayItems.map((item, index) => (
-                <div
-                  key={`${day}-${item.time}-${index}`}
-                  className="px-6 py-4 flex gap-4 print:px-4 print:py-3 print:gap-3 print:break-inside-avoid"
-                >
-                  <div className="flex flex-col items-center shrink-0 w-14 print:w-12">
-                    <span className="text-sm font-bold text-foreground print:text-gray-900 print:text-xs">
-                      {item.time}
-                    </span>
+              {dayItems.map((item, index) => {
+                const destinationHref = getDestinationHref(item);
 
-                    <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full border mt-1 font-medium print:text-[10px] print:px-1.5 print:py-0.5 ${
-                        PERIOD_COLOR[item.period]
-                      }`}
-                    >
-                      {PERIOD_LABEL[item.period]}
-                    </span>
-
-                    {index < dayItems.length - 1 && (
-                      <div className="flex-1 w-px bg-border mt-2 print:bg-gray-300" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
-                      <h4 className="font-bold text-foreground text-sm leading-tight print:text-gray-900 print:text-sm">
-                        {item.destinationName}
-                      </h4>
-
-                      <span className="text-xs text-primary font-bold shrink-0 print:text-gray-700">
-                        {formatRp(item.estimatedCost)}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mb-2">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1 print:text-gray-600">
-                        <MapPin className="w-3 h-3" />
-                        {item.category}
+                return (
+                  <div
+                    key={`${day}-${item.time}-${index}`}
+                    className="px-6 py-4 flex gap-4 print:px-4 print:py-3 print:gap-3 print:break-inside-avoid"
+                  >
+                    <div className="flex flex-col items-center shrink-0 w-14 print:w-12">
+                      <span className="text-sm font-bold text-foreground print:text-gray-900 print:text-xs">
+                        {item.time}
                       </span>
 
-                      <span className="text-xs text-muted-foreground flex items-center gap-1 print:text-gray-600">
-                        <Clock className="w-3 h-3" />
-                        {item.duration}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground leading-relaxed mb-2 print:text-gray-600">
-                      {item.description}
-                    </p>
-
-                    <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 text-xs text-amber-700 mb-3 print:bg-gray-50 print:border-gray-300 print:text-gray-700 print:text-[11px] print:mb-2">
-                      💡 {item.tips}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 print:hidden">
-                      {item.destinationSlug && (
-                        <Link
-                          href={`/destination/${item.destinationSlug}`}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-semibold hover:bg-primary/20 transition-colors flex items-center gap-1"
-                        >
-                          <Eye className="w-3 h-3" />
-                          Lihat Destinasi
-                        </Link>
-                      )}
-
-                      <a
-                        href={item.mapsUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs px-3 py-1.5 rounded-lg bg-muted text-muted-foreground font-semibold hover:bg-muted/80 transition-colors flex items-center gap-1"
+                      <span
+                        className={`text-xs px-1.5 py-0.5 rounded-full border mt-1 font-medium print:text-[10px] print:px-1.5 print:py-0.5 ${
+                          PERIOD_COLOR[item.period] ||
+                          "bg-gray-50 text-gray-700 border-gray-200"
+                        }`}
                       >
-                        <MapPin className="w-3 h-3" />
-                        Lihat di Maps
-                      </a>
+                        {PERIOD_LABEL[item.period] || item.period}
+                      </span>
+
+                      {index < dayItems.length - 1 && (
+                        <div className="flex-1 w-px bg-border mt-2 print:bg-gray-300" />
+                      )}
                     </div>
 
-                    {item.mapsUrl && (
-                      <div className="hidden print:block mt-2 text-[10px] text-gray-700 break-all leading-relaxed">
-                        <strong>Google Maps:</strong>{" "}
-                        <a href={item.mapsUrl}>{item.mapsUrl}</a>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                        {destinationHref ? (
+                          <Link
+                            href={destinationHref}
+                            className="font-bold text-foreground text-sm leading-tight hover:text-primary hover:underline print:text-gray-900 print:text-sm"
+                          >
+                            {item.destinationName}
+                          </Link>
+                        ) : (
+                          <h4 className="font-bold text-foreground text-sm leading-tight print:text-gray-900 print:text-sm">
+                            {item.destinationName}
+                          </h4>
+                        )}
+
+                        <ActivityEstimate value={item.estimatedCost} />
                       </div>
-                    )}
+
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mb-2">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 print:text-gray-600">
+                          <MapPin className="w-3 h-3" />
+                          {item.category}
+                        </span>
+
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 print:text-gray-600">
+                          <Clock className="w-3 h-3" />
+                          {item.duration}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground leading-relaxed mb-2 print:text-gray-600">
+                        {item.description}
+                      </p>
+
+                      <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 text-xs text-amber-700 mb-3 print:bg-gray-50 print:border-gray-300 print:text-gray-700 print:text-[11px] print:mb-2">
+                        💡 {item.tips}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 print:hidden">
+                        {destinationHref && (
+                          <Link
+                            href={destinationHref}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary font-semibold hover:bg-primary/20 transition-colors flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" />
+                            Lihat Destinasi
+                          </Link>
+                        )}
+
+                        {item.mapsUrl && (
+                          <a
+                            href={item.mapsUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs px-3 py-1.5 rounded-lg bg-muted text-muted-foreground font-semibold hover:bg-muted/80 transition-colors flex items-center gap-1"
+                          >
+                            <MapPin className="w-3 h-3" />
+                            Lihat di Maps
+                          </a>
+                        )}
+                      </div>
+
+                      {item.mapsUrl && (
+                        <div className="hidden print:block mt-2 text-[10px] text-gray-700 break-all leading-relaxed">
+                          <strong>Google Maps:</strong>{" "}
+                          <a href={item.mapsUrl}>{item.mapsUrl}</a>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -745,6 +837,7 @@ function ItineraryHistory({
 
   useEffect(() => {
     fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDelete = async (id: number | string) => {
@@ -822,77 +915,90 @@ function ItineraryHistory({
       animate={{ opacity: 1, y: 0 }}
       className="max-w-2xl mx-auto space-y-4"
     >
-      {list.map((itinerary, index) => (
-        <motion.div
-          key={itinerary.id}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.06 }}
-          className="bg-white rounded-2xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <h3 className="font-bold text-foreground">{itinerary.title}</h3>
+      {list.map((itinerary, index) => {
+        const perPersonMin = getPerPersonEstimate(
+          itinerary.estimatedCostMin,
+          itinerary.people
+        );
 
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {new Date(itinerary.createdAt).toLocaleDateString("id-ID", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
+        const perPersonMax = getPerPersonEstimate(
+          itinerary.estimatedCostMax,
+          itinerary.people
+        );
 
-            <button
-              type="button"
-              onClick={() => handleDelete(itinerary.id)}
-              className="p-2 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+        return (
+          <motion.div
+            key={itinerary.id}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.06 }}
+            className="bg-white rounded-2xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="font-bold text-foreground">
+                  {itinerary.title}
+                </h3>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {[
-              `${itinerary.days} Hari`,
-              `${itinerary.people} Orang`,
-              BUDGET_LABEL[itinerary.budgetType],
-              itinerary.interests.join(", "),
-            ].map((tag, tagIndex) => (
-              <span
-                key={tagIndex}
-                className="px-2.5 py-1 bg-muted/60 rounded-full text-xs font-medium text-foreground"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <span className="text-xs text-muted-foreground">
-                Estimasi biaya
-              </span>
-
-              <div className="font-bold text-primary text-sm">
-                {formatRp(itinerary.estimatedCostMin)} –{" "}
-                {formatRp(itinerary.estimatedCostMax)}
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatDateTime(itinerary.createdAt)}
+                </p>
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleDelete(itinerary.id)}
+                className="p-2 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
 
-            <Button
-              size="sm"
-              onClick={() => onView(itinerary)}
-              className="gap-1 rounded-xl h-9 shrink-0"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              Lihat
-            </Button>
-          </div>
-        </motion.div>
-      ))}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {[
+                `${itinerary.days} Hari`,
+                `${itinerary.people} Orang`,
+                BUDGET_LABEL[itinerary.budgetType],
+                itinerary.interests.join(", "),
+              ].map((tag, tagIndex) => (
+                <span
+                  key={tagIndex}
+                  className="px-2.5 py-1 bg-muted/60 rounded-full text-xs font-medium text-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <span className="text-xs text-muted-foreground">
+                  Total untuk {itinerary.people} orang
+                </span>
+
+                <div className="font-bold text-primary text-sm">
+                  {formatRp(itinerary.estimatedCostMin)} –{" "}
+                  {formatRp(itinerary.estimatedCostMax)}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Per orang: {formatRp(perPersonMin)} –{" "}
+                  {formatRp(perPersonMax)}
+                </p>
+              </div>
+
+              <Button
+                size="sm"
+                onClick={() => onView(itinerary)}
+                className="gap-1 rounded-xl h-9 shrink-0"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Lihat
+              </Button>
+            </div>
+          </motion.div>
+        );
+      })}
     </motion.div>
   );
 }
